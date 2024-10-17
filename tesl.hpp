@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include <type_traits>
 #include <utility>
 
 //#define TE_DEBUG_PEDANTIC
@@ -537,25 +538,14 @@ extern "C" {
 }
 #else
 extern "C" {
-  inline void _putchar(char character) {
+  void _putchar(char character) {
     fputc(character, stdout);
   }
 }
 #endif
 
-//to remove instances of printf
-//#define te_printf(...) Serial.printf(__VA_ARGS__)
-//#define te_printf(...) do { printf(__VA_ARGS__); fflush(stdout); } while(false)
+#define te_printf printf
 
-inline int te_printf(const char *fmt, ...) {
-    int result;
-    va_list args;
-    va_start(args, fmt);
-    fputs("Error: ", stderr);
-    result = vfprintf(stderr, fmt, args);
-    va_end(args);
-    return result;
-}
 
 #ifndef PI
 #define PI 3.14159265358979323846f
@@ -632,251 +622,270 @@ enum te_token : char {
   TOK_DEC,
 };
 
-inline const char * hex_chars = "0123456789abcdef";
+extern "C" {
+  int _handle_extra_vsnprintf_spec(char spec, out_fct_type out, void* buffer, size_t idx, size_t maxlen, va_list *va) {
+    static const char * hex_chars = "0123456789abcdef";
 
-inline void write_hex(int value, char * str, int pos) {
-  str[pos] = hex_chars[(value >> 12) & 0xf];\
-    str[pos + 1] = hex_chars[(value >> 8) & 0xf];\
-    str[pos + 2] = hex_chars[(value >> 4) & 0xf];\
-    str[pos + 3] = hex_chars[value & 0xf];\
+#define OUT_STR_(str) for (int i = 0; i < (sizeof(str) - 1); ++i) { out(str[i], buffer, idx++, maxlen); }
+    switch (spec) {
+      case 'y': {
+        te_type type = (te_type)va_arg(*va, int);
+        if (TE_IS_FUNCTION(type)) {
+          if (type & TE_FLAG_PURE) {
+            OUT_STR_("<function:pure>");
+          } else {
+            OUT_STR_("<function>");
+          }
+        } else {
+          switch (type) {
+            case TE_ERROR:
+              OUT_STR_("<error>");
+              break;
+            case TE_INT_REF:
+              OUT_STR_("int&");
+              break;
+            case TE_FLOAT_REF:
+              OUT_STR_("float&");
+              break;
+            case TE_VEC2_REF:
+              OUT_STR_("vec2&");
+              break;
+            case TE_VEC3_REF:
+              OUT_STR_("vec3&");
+              break;
+            case TE_VEC4_REF:
+              OUT_STR_("vec4&");
+              break;
+            case TE_MAT2_REF:
+              OUT_STR_("mat2&");
+              break;
+            case TE_MAT3_REF:
+              OUT_STR_("mat3&");
+              break;
+            case TE_MAT4_REF:
+              OUT_STR_("mat4&");
+              break;
+            case TE_STR_REF:
+              OUT_STR_("str&");
+              break;
+            case TE_NULL:
+              OUT_STR_("void");
+              break;
+            case TE_INT:
+              OUT_STR_("int");
+              break;
+            case TE_FLOAT:
+              OUT_STR_("float");
+              break;
+            case TE_VEC2:
+              OUT_STR_("vec2");
+              break;
+            case TE_VEC3:
+              OUT_STR_("vec3");
+              break;
+            case TE_VEC4:
+              OUT_STR_("vec4");
+              break;
+            case TE_MAT2:
+              OUT_STR_("mat2");
+              break;
+            case TE_MAT3:
+              OUT_STR_("mat3");
+              break;
+            case TE_MAT4:
+              OUT_STR_("mat4");
+              break;
+            case TE_STR:
+              OUT_STR_("str");
+              break;
+            default:
+              OUT_STR_("<unknown_type:0x");
+              out(hex_chars[(type >> 4) & 0xf], buffer, idx++, maxlen);
+              out(hex_chars[(type) & 0xf], buffer, idx++, maxlen);
+              out('>', buffer, idx++, maxlen);
+              break;
+          }
+        }
+      } break;
+      case 'k': {
+        te_token tok = (te_token)va_arg(*va, int);
+        switch (tok) {
+          case TOK_NULL:
+            OUT_STR_("<null>");
+            break;
+          case TOK_END:
+            OUT_STR_("<end>");
+            break;
+          case TOK_SEP:
+            OUT_STR_("','");
+            break;
+          case TOK_DOT:
+            OUT_STR_("'.'");
+            break;
+          case TOK_SEMICOLON:
+            OUT_STR_("';'");
+            break;
+          case TOK_TYPENAME:
+            OUT_STR_("<typename>");
+            break;
+          case TOK_IDENTIFIER:
+            OUT_STR_("<identifier>");
+            break;
+          case TOK_OPEN_PAREN:
+            OUT_STR_("'('");
+            break;
+          case TOK_CLOSE_PAREN:
+            OUT_STR_("')'");
+            break;
+          case TOK_OPEN_SQUARE_BRACKET:
+            OUT_STR_("'['");
+            break;
+          case TOK_CLOSE_SQUARE_BRACKET:
+            OUT_STR_("']'");
+            break;
+          case TOK_OPEN_CURLY_BRACKET:
+            OUT_STR_("'{'");
+            break;
+          case TOK_CLOSE_CURLY_BRACKET:
+            OUT_STR_("'}'");
+            break;
+          case TOK_LITERAL:
+            OUT_STR_("<literal>");
+            break;
+          case TOK_UNIFORM:
+            OUT_STR_("'uniform'");
+            break;
+          case TOK_IN:
+            OUT_STR_("'in'");
+            break;
+          case TOK_OUT:
+            OUT_STR_("'out'");
+            break;
+          case TOK_INOUT:
+            OUT_STR_("'inout'");
+            break;
+          case TOK_IF:
+            OUT_STR_("'if'");
+            break;
+          case TOK_ELSE:
+            OUT_STR_("'else'");
+            break;
+          case TOK_SWITCH:
+            OUT_STR_("'switch'");
+            break;
+          case TOK_CASE:
+            OUT_STR_("'case'");
+            break;
+          case TOK_FOR:
+            OUT_STR_("'for'");
+            break;
+          case TOK_WHILE:
+            OUT_STR_("'while'");
+            break;
+          case TOK_DO:
+            OUT_STR_("'do'");
+            break;
+          case TOK_BREAK:
+            OUT_STR_("'break'");
+            break;
+          case TOK_CONTINUE:
+            OUT_STR_("'continue'");
+            break;
+          case TOK_RETURN:
+            OUT_STR_("'return'");
+            break;
+          case TOK_DISCARD:
+            OUT_STR_("'discard'");
+            break;
+          case TOK_AND:
+            OUT_STR_("'&'");
+            break;
+          case TOK_AND_AND:
+            OUT_STR_("'&&'");
+            break;
+          case TOK_OR:
+            OUT_STR_("'|'");
+            break;
+          case TOK_OR_OR:
+            OUT_STR_("'||'");
+            break;
+          case TOK_EQUAL:
+            OUT_STR_("'='");
+            break;
+          case TOK_EQUAL_EQUAL:
+            OUT_STR_("'=='");
+            break;
+          case TOK_BANG:
+            OUT_STR_("'!'");
+            break;
+          case TOK_BANG_EQUAL:
+            OUT_STR_("'!='");
+            break;
+          case TOK_LESS:
+            OUT_STR_("'<'");
+            break;
+          case TOK_LESS_EQUAL:
+            OUT_STR_("'<='");
+            break;
+          case TOK_GREATER:
+            OUT_STR_("'>'");
+            break;
+          case TOK_GREATER_EQUAL:
+            OUT_STR_("'>='");
+            break;
+          case TOK_ADD:
+            OUT_STR_("'+'");
+            break;
+          case TOK_ADD_EQUAL:
+            OUT_STR_("'+='");
+            break;
+          case TOK_SUB:
+            OUT_STR_("'-'");
+            break;
+          case TOK_SUB_EQUAL:
+            OUT_STR_("'-='");
+            break;
+          case TOK_MUL:
+            OUT_STR_("'*'");
+            break;
+          case TOK_MUL_EQUAL:
+            OUT_STR_("'*='");
+            break;
+          case TOK_DIV:
+            OUT_STR_("'/'");
+            break;
+          case TOK_DIV_EQUAL:
+            OUT_STR_("'/='");
+            break;
+          case TOK_MOD:
+            OUT_STR_("'%'");
+            break;
+          case TOK_MOD_EQUAL:
+            OUT_STR_("'%='");
+            break;
+          default:
+            OUT_STR_("<unknown_token:0x");
+            out(hex_chars[(tok >> 4) & 0xf], buffer, idx++, maxlen);
+            out(hex_chars[(tok) & 0xf], buffer, idx++, maxlen);
+            out('>', buffer, idx++, maxlen);
+            break;
+        }
+      } break;
+    }
 
+    out(spec, buffer, idx++, maxlen);
+
+    return idx;
+#undef OUT_STR_
+  }
 }
 
 inline void te_print_type_name(te_type type) {
-  if (TE_IS_FUNCTION(type)) {
-    if (type & TE_FLAG_PURE) {
-      te_printf("<function:pure>");
-    } else {
-      te_printf("<function>");
-    }
-  } else {
-    switch (type) {
-      case TE_ERROR:
-        te_printf("<error>");
-        break;
-      case TE_INT_REF:
-        te_printf("int&");
-        break;
-      case TE_FLOAT_REF:
-        te_printf("float&");
-        break;
-      case TE_VEC2_REF:
-        te_printf("vec2&");
-        break;
-      case TE_VEC3_REF:
-        te_printf("vec3&");
-        break;
-      case TE_VEC4_REF:
-        te_printf("vec4&");
-        break;
-      case TE_MAT2_REF:
-        te_printf("mat2&");
-        break;
-      case TE_MAT3_REF:
-        te_printf("mat3&");
-        break;
-      case TE_MAT4_REF:
-        te_printf("mat4&");
-        break;
-      case TE_STR_REF:
-        te_printf("str&");
-        break;
-      case TE_NULL:
-        te_printf("void");
-        break;
-      case TE_INT:
-        te_printf("int");
-        break;
-      case TE_FLOAT:
-        te_printf("float");
-        break;
-      case TE_VEC2:
-        te_printf("vec2");
-        break;
-      case TE_VEC3:
-        te_printf("vec3");
-        break;
-      case TE_VEC4:
-        te_printf("vec4");
-        break;
-      case TE_MAT2:
-        te_printf("mat2");
-        break;
-      case TE_MAT3:
-        te_printf("mat3");
-        break;
-      case TE_MAT4:
-        te_printf("mat4");
-        break;
-      case TE_STR:
-        te_printf("str");
-        break;
-      default:
-        te_printf("<unknown:0x%08lx>", long(type));
-        break;
-    }
-  }
+  te_printf("%y", type);
 }
 
-inline void te_print_token(int tok) {
-  switch (tok) {
-    case TOK_NULL:
-      te_printf("<null>");
-      break;
-    case TOK_END:
-      te_printf("<end>");
-      break;
-    case TOK_SEP:
-      te_printf("','");
-      break;
-    case TOK_DOT:
-      te_printf("'.'");
-      break;
-    case TOK_SEMICOLON:
-      te_printf("';'");
-      break;
-    case TOK_TYPENAME:
-      te_printf("<typename>");
-      break;
-    case TOK_IDENTIFIER:
-      te_printf("<identifier>");
-      break;
-    case TOK_OPEN_PAREN:
-      te_printf("'('");
-      break;
-    case TOK_CLOSE_PAREN:
-      te_printf("')'");
-      break;
-    case TOK_OPEN_SQUARE_BRACKET:
-      te_printf("'['");
-      break;
-    case TOK_CLOSE_SQUARE_BRACKET:
-      te_printf("']'");
-      break;
-    case TOK_OPEN_CURLY_BRACKET:
-      te_printf("'{'");
-      break;
-    case TOK_CLOSE_CURLY_BRACKET:
-      te_printf("'}'");
-      break;
-    case TOK_LITERAL:
-      te_printf("<literal>");
-      break;
-    case TOK_UNIFORM:
-      te_printf("'uniform'");
-      break;
-    case TOK_IN:
-      te_printf("'in'");
-      break;
-    case TOK_OUT:
-      te_printf("'out'");
-      break;
-    case TOK_INOUT:
-      te_printf("'inout'");
-      break;
-    case TOK_IF:
-      te_printf("'if'");
-      break;
-    case TOK_ELSE:
-      te_printf("'else'");
-      break;
-    case TOK_SWITCH:
-      te_printf("'switch'");
-      break;
-    case TOK_CASE:
-      te_printf("'case'");
-      break;
-    case TOK_FOR:
-      te_printf("'for'");
-      break;
-    case TOK_WHILE:
-      te_printf("'while'");
-      break;
-    case TOK_DO:
-      te_printf("'do'");
-      break;
-    case TOK_BREAK:
-      te_printf("'break'");
-      break;
-    case TOK_CONTINUE:
-      te_printf("'continue'");
-      break;
-    case TOK_RETURN:
-      te_printf("'return'");
-      break;
-    case TOK_DISCARD:
-      te_printf("'discard'");
-      break;
-    case TOK_AND:
-      te_printf("'&'");
-      break;
-    case TOK_AND_AND:
-      te_printf("'&&'");
-      break;
-    case TOK_OR:
-      te_printf("'|'");
-      break;
-    case TOK_OR_OR:
-      te_printf("'||'");
-      break;
-    case TOK_EQUAL:
-      te_printf("'='");
-      break;
-    case TOK_EQUAL_EQUAL:
-      te_printf("'=='");
-      break;
-    case TOK_BANG:
-      te_printf("'!'");
-      break;
-    case TOK_BANG_EQUAL:
-      te_printf("'!='");
-      break;
-    case TOK_LESS:
-      te_printf("'<'");
-      break;
-    case TOK_LESS_EQUAL:
-      te_printf("'<='");
-      break;
-    case TOK_GREATER:
-      te_printf("'>'");
-      break;
-    case TOK_GREATER_EQUAL:
-      te_printf("'>='");
-      break;
-    case TOK_ADD:
-      te_printf("'+'");
-      break;
-    case TOK_ADD_EQUAL:
-      te_printf("'+='");
-      break;
-    case TOK_SUB:
-      te_printf("'-'");
-      break;
-    case TOK_SUB_EQUAL:
-      te_printf("'-='");
-      break;
-    case TOK_MUL:
-      te_printf("'*'");
-      break;
-    case TOK_MUL_EQUAL:
-      te_printf("'*='");
-      break;
-    case TOK_DIV:
-      te_printf("'/'");
-      break;
-    case TOK_DIV_EQUAL:
-      te_printf("'/='");
-      break;
-    case TOK_MOD:
-      te_printf("'%%'");
-      break;
-    case TOK_MOD_EQUAL:
-      te_printf("'%%='");
-      break;
-    default:
-      te_printf("<unknown:0x%02x>", int(tok));
-      break;
-  }
+inline void te_print_token(te_token tok) {
+  te_printf("%k", tok);
 }
 
 struct te_error_record;
@@ -1930,7 +1939,7 @@ inline void next_token(te_parser_state * s) {
       while (isalpha(s->end[0]) || isdigit(s->end[0]) || s->end[0] == '_') s->end++;
       const int id_len = s->end - s->start;
 
-      #define MATCHES_TOKEN_(str) (id_len == (sizeof(str) - 1) && strncmp(str, s->start, id_len) == 0)
+#define MATCHES_TOKEN_(str) (id_len == (sizeof(str) - 1) && strncmp(str, s->start, id_len) == 0)
       switch (*s->start) {
         case 'b': {
           if (MATCHES_TOKEN_("break")) {
@@ -2042,6 +2051,7 @@ inline void next_token(te_parser_state * s) {
         }
           break;
       }
+#undef MATCHES_TOKEN_
 
       if (s->token == TOK_NULL) {
         s->token = TOK_IDENTIFIER;

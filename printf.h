@@ -43,9 +43,8 @@ extern "C" {
 
 // output function type
 typedef void (*out_fct_type)(char character, void* buffer, size_t idx, size_t maxlen);
-typedef int (*vsnprintf_spec)(out_fct_type out, void* buffer, size_t idx, size_t maxlen, va_list *va);
 
-extern vsnprintf_spec extra_vsnprintf_specs[127];
+int _handle_extra_vsnprintf_spec(char spec, out_fct_type out, void* buffer, size_t idx, size_t maxlen, va_list *va);
 
 /**
  * Output a character to a custom device like UART, used by the printf() function

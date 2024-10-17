@@ -118,7 +118,9 @@
 #endif
 
 
-vsnprintf_spec extra_vsnprintf_specs[127];
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 // wrapper (used as buffer) for output function type
@@ -842,16 +844,7 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
         break;
 
       default :
-      char spec = *format;
-        if (spec <= 127) {
-          vsnprintf_spec spec_fn = extra_vsnprintf_specs[spec];
-          if (spec_fn) {
-            idx = spec_fn(out, buffer, idx, maxlen, &va);
-            break;
-          }
-        }
-
-        out(*format, buffer, idx++, maxlen);
+        idx = _handle_extra_vsnprintf_spec(*format, out, buffer, idx, maxlen, &va);
         format++;
         break;
     }
@@ -920,3 +913,8 @@ int fctprintf(void (*out)(char character, void* arg), void* arg, const char* for
   va_end(va);
   return ret;
 }
+
+
+#ifdef __cplusplus
+}
+#endif

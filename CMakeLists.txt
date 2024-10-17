@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(tesl CXX)
+project(tes C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 if (MSVC)
@@ -7,7 +7,7 @@ if (MSVC)
     #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MT")
 endif ()
 
-add_executable(tesl main.cpp)
+add_executable(tesl main.cpp printf.c)
 #if (MSVC)
 #    add_compile_options("/fsanitize=address")
 #    add_link_options("/fsanitize=address")
