@@ -7,7 +7,7 @@ if (MSVC)
     #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MT")
 endif ()
 
-add_executable(tesl main.cpp printf.c)
+add_executable(tesl main.cpp tesl.cpp printf.c)
 #if (MSVC)
 #    add_compile_options("/fsanitize=address")
 #    add_link_options("/fsanitize=address")
