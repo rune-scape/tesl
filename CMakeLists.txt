@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.16)
+project(tesl CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+if (MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MT")
+endif ()
+
+add_executable(tesl main.cpp)
+#if (MSVC)
+#    add_compile_options("/fsanitize=address")
+#    add_link_options("/fsanitize=address")
+#else()
+#    add_compile_options("-fsanitize=address" "-m32")
+#    add_link_options("-fsanitize=address" "-m32")
+#endif()
+set_target_properties(tesl PROPERTIES COMPILE_OPTIONS "-m32" LINK_FLAGS "-m32")
