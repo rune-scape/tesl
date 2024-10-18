@@ -42,7 +42,7 @@
 #define TE_DEBUG_EVAL
 #define TE_DEBUG_EXPR
 #define TE_MAX_VAR_COUNT 128
-#define TE_MAX_STMT_COUNT 256
+#define TE_MAX_STMT_COUNT 1024
 
 #define TE_TYPE_MASK_BIT_COUNT 7
 
@@ -180,7 +180,7 @@ struct te_fn_obj {
 static_assert(sizeof(te_fn_obj) == 32);
 
 struct te_fn_obj_with_args : te_fn_obj {
-  te_expr * args[1];
+  te_expr * args[0];
 
   te_fn_obj_with_args & operator=(const te_fn_obj &other) {
     ptr = other.ptr;
@@ -253,7 +253,8 @@ struct te_variable {
 };
 
 // DO NOT STATICALLY ALLOCATE EXPR OBJS
-struct te_expr {
+template<auto OpArgCount>
+struct te_expr_ {
   te_opcode opcode = TE_OP_VALUE;
   te_type type = TE_ERROR;
   union {
@@ -263,9 +264,11 @@ struct te_expr {
   union {
     te_value value;
     te_fn_obj_with_args fn;
-    te_expr * opargs[1];
+    te_expr * opargs[OpArgCount];
   };
 };
+
+struct te_expr : public te_expr_<0> {};
 static_assert((sizeof(te_opcode) + sizeof(te_type) + sizeof(uint16_t)) == 4);
 static_assert(sizeof(te_expr) == (1 + 1 + 2 + 64));
 
