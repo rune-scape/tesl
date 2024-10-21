@@ -35,18 +35,24 @@
 
 #include "printf.h"
 
-#define te_printf printf
-
 //#define TE_DEBUG_PEDANTIC
 #define TE_DEBUG_COMPILE
 #define TE_DEBUG_EVAL
 #define TE_DEBUG_EXPR
+//#define TE_DISABLE_PRINTF
+
+#ifdef TE_DISABLE_PRINTF
+#define te_printf(...)
+#else
+#define te_printf printf
+#endif
+
 #define TE_MAX_VAR_COUNT 128
 #define TE_MAX_STMT_COUNT 1024
 
 #define TE_TYPE_MASK_BIT_COUNT 7
 
-#define TE_PARAM_COUNT_MAX (22)
+#define TE_PARAM_COUNT_MAX (21)
 
 #define TE_TYPE_COUNT_MAX (1ul << TE_TYPE_MASK_BIT_COUNT)
 
@@ -65,8 +71,6 @@ enum te_type : uint8_t {
   TE_TYPE_COUNT,
 
   TE_CONSTANT = 1ul << 7,
-  TE_FLAG_PURE = TE_CONSTANT,
-  TE_PURE_FUNCTION = TE_FUNCTION | TE_FLAG_PURE,
 
   TE_NULL = TE_CONSTANT,
   TE_FLOAT = TE_FLOAT_REF | TE_CONSTANT,
@@ -81,65 +85,69 @@ enum te_type : uint8_t {
 };
 
 enum te_opcode : uint8_t {
+  TE_OP_ERROR,
+  TE_OP_VALUE,
+  TE_OP_STACK_REF,
+  TE_OP_DEREF,
+  TE_OP_ASSIGN,
+  TE_OP_CALL,
+  TE_OP_SUITE,
   TE_OP_JMP,
   TE_OP_JMP_REF,
   TE_OP_JMP_IF,
   TE_OP_JMP_IF_NOT,
   TE_OP_RETURN,
-  TE_OP_VALUE,
-  TE_OP_DEREF,
-  TE_OP_FUNCTION,
-  TE_OP_SUITE,
-  TE_OP_STACK_REF,
-  TE_OP_ASSIGN,
 };
 
-static_assert(sizeof(float) == 4);
 static_assert(TE_TYPE_COUNT <= TE_TYPE_COUNT_MAX);
 
-#define TE_IS_FUNCTION(TYPE) (((TYPE) & ~TE_FLAG_PURE) == TE_FUNCTION)
+#define TE_IS_FUNCTION(TYPE) (TYPE == TE_FUNCTION)
 #define TE_IS_CONSTANT(TYPE) (((TYPE) & (TE_CONSTANT)) && !TE_IS_FUNCTION(TYPE))
 #define TE_IS_REF(TYPE) (!((TYPE) & (TE_CONSTANT)) && !TE_IS_FUNCTION(TYPE))
 
+static_assert(sizeof(float) == 4);
+using te_float = float;
+using te_int = int32_t;
+
 struct te_vec2 {
   union {
-    float elements[2]{0.0f};
-    float arr[2];
-    struct { float x, y; };
-    struct { float r, g; };
+    te_float elements[2]{0.0f};
+    te_float arr[2];
+    struct { te_float x, y; };
+    struct { te_float r, g; };
   };
 };
 
 struct te_vec3 {
   union {
-    float elements[3]{0.0f};
-    float arr[3];
-    struct { float x, y, z; };
-    struct { float r, g, b; };
+    te_float elements[3]{0.0f};
+    te_float arr[3];
+    struct { te_float x, y, z; };
+    struct { te_float r, g, b; };
   };
 };
 
 struct te_vec4 {
   union {
-    float elements[4] = {0.0f};
-    float arr[4];
-    struct { float x, y, z, w; };
-    struct { float r, g, b, a; };
+    te_float elements[4] = {0.0f};
+    te_float arr[4];
+    struct { te_float x, y, z, w; };
+    struct { te_float r, g, b, a; };
   };
 };
 
 union te_mat2 {
-  float elements[2 * 2];
+  te_float elements[2 * 2];
   te_vec2 arr[2]{};
 };
 
 union te_mat3 {
-  float elements[3 * 3];
+  te_float elements[3 * 3];
   te_vec3 arr[3]{};
 };
 
 union te_mat4 {
-  float elements[4 * 4];
+  te_float elements[4 * 4];
   te_vec4 arr[4]{};
 };
 
@@ -170,7 +178,8 @@ struct te_fn_obj {
   te_function ptr = nullptr;
   void * context = nullptr;
   te_type return_type = TE_ERROR;
-  int8_t param_count = 0;
+  bool pure = true;
+  uint8_t param_count = 0;
   te_type param_types[TE_PARAM_COUNT_MAX]{TE_ERROR};
 
   [[nodiscard]] bool is_valid() const {
@@ -179,45 +188,33 @@ struct te_fn_obj {
 };
 static_assert(sizeof(te_fn_obj) == 32);
 
-struct te_fn_obj_with_args : te_fn_obj {
-  te_expr * args[0];
-
-  te_fn_obj_with_args & operator=(const te_fn_obj &other) {
-    ptr = other.ptr;
-    context = other.context;
-    return_type = other.return_type;
-    param_count = other.param_count;
-    for (int i = 0; i < param_count; ++i) {
-      param_types[i] = other.param_types[i];
-    }
-    return *this;
-  }
-};
-
 struct te_value {
   union {
     te_fn_obj fn;
+    te_fn_obj *fn_ref;
 
-    struct { float x, y, z, w; };
-    struct { float r, g, b, a; };
-    float float_;
+    struct { te_float x, y, z, w; };
+    struct { te_float r, g, b, a; };
+
+    te_float float_;
     te_vec2 vec2;
     te_vec3 vec3;
     te_vec4 vec4;
-    int32_t int_;
+    te_int int_;
     te_mat2 mat2;
     te_mat3 mat3;
     te_mat4 mat4;
     te_string str;
-    float elements[16];
+
+    te_float elements[16];
 
     void * ptr;
     te_value * ref;
-    float * float_ref;
+    te_float * float_ref;
     te_vec2 * vec2_ref;
     te_vec3 * vec3_ref;
     te_vec4 * vec4_ref;
-    int32_t * int_ref;
+    te_int * int_ref;
     te_mat2 * mat2_ref;
     te_mat3 * mat3_ref;
     te_mat4 * mat4_ref;
@@ -230,7 +227,7 @@ struct te_value {
   };
 
   te_value(te_fn_obj p_fn) : fn(p_fn) {};
-  te_value(float p_float) : float_(p_float) {};
+  te_value(te_float p_float) : float_(p_float) {};
   te_value(int32_t p_int) : int_(p_int) {};
   te_value(te_vec2 p_vec) : vec2(p_vec) {};
   te_value(te_vec3 p_vec) : vec3(p_vec) {};
@@ -252,27 +249,78 @@ struct te_variable {
   };
 };
 
-// DO NOT STATICALLY ALLOCATE EXPR OBJS
-template<auto OpArgCount>
-struct te_expr_ {
-  te_opcode opcode = TE_OP_VALUE;
-  te_type type = TE_ERROR;
-  union {
-    uint16_t offset = 0;
-    uint16_t size;
-  };
-  union {
-    te_value value;
-    te_fn_obj_with_args fn;
-    te_expr * opargs[OpArgCount];
-  };
+// DO NOT STATICALLY ALLOCATE THESE
+struct te_op {
+  te_opcode opcode = TE_OP_ERROR;
 };
+static_assert(sizeof(te_op) == 1);
 
-struct te_expr : public te_expr_<0> {};
-static_assert((sizeof(te_opcode) + sizeof(te_type) + sizeof(uint16_t)) == 4);
-static_assert(sizeof(te_expr) == (1 + 1 + 2 + 64));
+struct te_expr : te_op {
+  te_type type = TE_ERROR;
+};
+static_assert(sizeof(te_expr) == 2);
 
-te_type te_expr_result_type(const te_expr * expr);
+struct te_value_expr : public te_expr {
+  uint16_t size = 0;
+  te_value value;
+};
+static_assert(sizeof(te_value_expr) == 68);
+
+struct te_stack_ref_expr : te_expr {
+  uint16_t offset = 0;
+  uint16_t size = 0;
+};
+static_assert(sizeof(te_stack_ref_expr) == 6);
+
+struct te_deref_expr : te_expr {
+  uint16_t size = 0;
+  te_expr *arg = nullptr;
+};
+static_assert(sizeof(te_deref_expr) == 8);
+
+struct te_assign_expr : te_expr {
+  te_expr *lhs = nullptr;
+  te_expr *rhs = nullptr;
+};
+static_assert(sizeof(te_assign_expr) == 12);
+
+struct te_call_expr : te_expr {
+  uint16_t arg_stack_size = 0;
+  te_fn_obj fn;
+  te_expr *args[0];
+};
+static_assert(sizeof(te_call_expr) == 36);
+
+struct te_suite_expr : te_expr {
+  uint16_t stack_size = 0;
+  uint16_t stmt_count = 0;
+  te_expr *stmts[0];
+};
+static_assert(sizeof(te_suite_expr) == 8);
+
+struct te_jmp_op : public te_op {
+  static constexpr uint16_t unknown_offset = 0xffffu;
+  uint16_t offset = unknown_offset;
+};
+static_assert(sizeof(te_jmp_op) == 4);
+
+struct te_jmp_ref_op : public te_op {
+  uint16_t *offset_ref = nullptr;
+};
+static_assert(sizeof(te_jmp_ref_op) == 8);
+
+struct te_jmp_if_op : public te_jmp_op {
+  te_expr *condition = nullptr;
+};
+static_assert(sizeof(te_jmp_if_op) == 8);
+
+struct te_jmp_if_not_op : public te_jmp_if_op {};
+static_assert(sizeof(te_jmp_if_not_op) == 8);
+
+struct te_return_op : public te_op {
+  te_expr *arg = nullptr;
+};
+static_assert(sizeof(te_return_op) == 8);
 
 /* Parses the input expression, evaluates it, and frees it. */
 /* result_type is TE_ERROR on error. */
@@ -293,7 +341,7 @@ void te_print_type_name(te_type type);
 
 /* Frees the expression. */
 /* This is safe to call on NULL pointers. */
-void te_free(te_expr * n);
+void te_free(te_op * n);
 
 namespace te {
   template<typename T1, typename T2> constexpr bool is_same = false;
@@ -302,11 +350,11 @@ namespace te {
   template<typename T> inline constexpr te_type type_value_of = TE_ERROR;
   template<typename T> inline constexpr te_type type_value_of<T *> = te_type(type_value_of<T> & (~TE_CONSTANT));
   template<> inline constexpr te_type type_value_of<void> = TE_NULL;
-  template<> inline constexpr te_type type_value_of<float> = TE_FLOAT;
+  template<> inline constexpr te_type type_value_of<te_float> = TE_FLOAT;
   template<> inline constexpr te_type type_value_of<te_vec2> = TE_VEC2;
   template<> inline constexpr te_type type_value_of<te_vec3> = TE_VEC3;
   template<> inline constexpr te_type type_value_of<te_vec4> = TE_VEC4;
-  template<> inline constexpr te_type type_value_of<int32_t> = TE_INT;
+  template<> inline constexpr te_type type_value_of<te_int> = TE_INT;
   template<> inline constexpr te_type type_value_of<te_mat2> = TE_MAT2;
   template<> inline constexpr te_type type_value_of<te_mat3> = TE_MAT3;
   template<> inline constexpr te_type type_value_of<te_mat4> = TE_MAT4;
@@ -317,7 +365,7 @@ namespace te {
   template<>
   struct type_of_impl<TE_NULL> { using type = void; };
   template<>
-  struct type_of_impl<TE_FLOAT> { using type = float; };
+  struct type_of_impl<TE_FLOAT> { using type = te_float; };
   template<>
   struct type_of_impl<TE_VEC2> { using type = te_vec2; };
   template<>
@@ -337,8 +385,6 @@ namespace te {
 
   template<>
   struct type_of_impl<TE_FUNCTION> { using type = te_fn_obj; };
-  template<>
-  struct type_of_impl<TE_PURE_FUNCTION> { using type = te_fn_obj; };
 
   template<te_type T> using type_of = typename type_of_impl<T>::type;
 
@@ -439,15 +485,16 @@ namespace te {
     template<auto Fn, typename R, typename ... Ps>
     struct function : public function0<index_sequence_helper<sizeof...(Ps)>, Fn, R, Ps...> {};
 
-    template<te_function Fn, te_type RT, te_type ... PTs>
+    template<te_function Fn, bool Pure, te_type RT, te_type ... PTs>
     struct make_function_raw {
       inline static constexpr te_fn_obj call() {
         static_assert(sizeof...(PTs) <= TE_PARAM_COUNT_MAX, "too many parameters!");
         te_fn_obj ret;
         ret.ptr = Fn;
         ret.context = nullptr;
-        ret.param_count = sizeof...(PTs);
         ret.return_type = RT;
+        ret.pure = Pure;
+        ret.param_count = sizeof...(PTs);
 
         te_type ps[] = {PTs ...};
         for (int i = 0; i < sizeof...(PTs); ++i) {
@@ -457,27 +504,32 @@ namespace te {
       }
     };
 
-    template<auto Fn, typename R, typename ... Ps>
-    struct make_function_impl : public make_function_raw<function<Fn, R, Ps...>::call, type_value_of<R>, type_value_of<Ps>...> {};
+    template<auto Fn, bool Pure, typename R, typename ... Ps>
+    struct make_function_impl : public make_function_raw<function<Fn, R, Ps...>::call, Pure, type_value_of<R>, type_value_of<Ps>...> {};
 
-    template<auto Fn>
+    template<auto Fn, bool Pure>
     struct make_function;
 
-    template<typename R, typename ... Ps, R (* Fn)(Ps...)>
-    struct make_function<Fn> {
+    template<typename R, bool Pure, typename ... Ps, R (* Fn)(Ps...)>
+    struct make_function<Fn, Pure> {
       inline static constexpr te_fn_obj call() {
-        return make_function_impl<Fn, R, Ps...>::call();
+        return make_function_impl<Fn, Pure, R, Ps...>::call();
       }
     };
   }
 
   template<auto Fn>
   inline constexpr te_fn_obj make_function() {
-    return detail::make_function<Fn>::call();
+    return detail::make_function<Fn, false>::call();
+  }
+
+  template<auto Fn>
+  inline constexpr te_fn_obj make_pure_function() {
+    return detail::make_function<Fn, true>::call();
   }
 }
 
-inline constexpr int te_size_of(te_type type) {
+inline constexpr int8_t te_size_of(te_type type) {
 #define CASE_(tetype) case tetype: return sizeof(te::type_of<tetype>);
   switch (type) {
     CASE_(TE_INT)
@@ -499,7 +551,6 @@ inline constexpr int te_size_of(te_type type) {
     CASE_(TE_MAT4_REF)
     CASE_(TE_STR_REF)
     CASE_(TE_FUNCTION)
-    CASE_(TE_PURE_FUNCTION)
     case TE_NULL:
     case TE_ERROR:
       return 0;

@@ -57,13 +57,9 @@ extern "C" {
 }
 #endif
 
-
-
 #ifndef PI
 #define PI 3.14159265358979323846f
 #endif
-
-constexpr uint16_t TE_UNKNOWN_OFFSET = 0xffffu;
 
 #ifdef TE_DEBUG_COMPILE
 #define TE_FAIL_COMPILE_COND(cond, action, ...)\
@@ -143,11 +139,7 @@ extern "C" {
       case 'y': {
         te_type type = (te_type)va_arg(*va, int);
         if (TE_IS_FUNCTION(type)) {
-          if (type & TE_FLAG_PURE) {
-            OUT_STR_("<function:pure>");
-          } else {
-            OUT_STR_("<function>");
-          }
+          OUT_STR_("<function>");
         } else {
           switch (type) {
             case TE_ERROR:
@@ -428,12 +420,12 @@ struct te_parser_state {
   int stmt_count = 0;
 
   const te_variable * lookup = nullptr;
-  int lookup_len = 0;
-  int stack_size = 0;
-  int stack_offset = 0;
-  int var_count = 0;
+  int32_t lookup_len = 0;
+  int32_t stack_size = 0;
+  int32_t stack_offset = 0;
+  int32_t var_count = 0;
   var_ref vars[TE_MAX_VAR_COUNT];
-  te_expr * stmts[TE_MAX_STMT_COUNT];
+  te_op * stmts[TE_MAX_STMT_COUNT];
 };
 
 struct te_error_record {
@@ -443,7 +435,7 @@ struct te_error_record {
   const char * start = nullptr;
   const char * point = nullptr;
   const char * end = nullptr;
-  int line_num = 0;
+  te_int line_num = 0;
 
   explicit te_error_record(te_parser_state & s) : state(s) {
     prev = s.error;
@@ -525,7 +517,7 @@ void te_print_error(te_parser_state & s) {
 #endif
 }
 
-uint16_t te_make_allocate_var(te_parser_state & s, const char * start, int len, te_type type) {
+te_parser_state::var_ref *te_make_allocate_var(te_parser_state & s, const char * start, int len, te_type type) {
   if (len > 0xff) {
     te_error_record er(s);
 #ifdef TE_DEBUG_COMPILE
@@ -539,26 +531,31 @@ uint16_t te_make_allocate_var(te_parser_state & s, const char * start, int len, 
     te_printf("internal error: invalid var name length: %d", len);
 #endif
     te_print_error(s);
-    return 0;
+    return nullptr;
   }
 
-  int var_size = te_size_of(type);
+  int8_t var_size = te_size_of(type);
   uint16_t offset = s.stack_offset;
-  s.vars[s.var_count].start = start;
-  s.vars[s.var_count].len = len;
-  s.vars[s.var_count].type = type;
-  s.vars[s.var_count].offset = offset;
+  te_parser_state::var_ref &var = s.vars[s.var_count];
+  var.start = start;
+  var.len = len;
+  var.type = type;
+  var.offset = offset;
   s.stack_offset += var_size;
   s.stack_size = MAX(s.stack_size, s.stack_offset);
   s.var_count++;
-  return offset;
+  return &var;
 }
 
-void te_make_deallocate_var(te_parser_state & s, uint16_t offset) {
+void te_make_deallocate_var(te_parser_state & s, te_parser_state::var_ref *var) {
+  if (!var) {
+    return;
+  }
+
   s.var_count--;
   s.stack_offset = s.vars[s.var_count].offset;
 
-  if (offset != s.stack_offset) {
+  if (var != &s.vars[s.var_count]) {
     te_error_record er(s);
 #ifdef TE_DEBUG_COMPILE
     te_printf("internal error: stack var deallocated out of order!");
@@ -567,53 +564,46 @@ void te_make_deallocate_var(te_parser_state & s, uint16_t offset) {
   }
 }
 
-int te_opcode_arg_count(te_opcode opcode) {
-  switch (opcode) {
-    case TE_OP_JMP:
-      return 0;
-    case TE_OP_JMP_REF:
-      return 0;
-    case TE_OP_JMP_IF:
-      return 1;
-    case TE_OP_JMP_IF_NOT:
-      return 1;
-    case TE_OP_RETURN:
-      return 1;
-    case TE_OP_VALUE:
-      return 0;
-    case TE_OP_DEREF:
-      return 1;
-    case TE_OP_FUNCTION:
-      return 0;
-    case TE_OP_SUITE:
-      return -1;
-    case TE_OP_STACK_REF:
-      return 0;
-    case TE_OP_ASSIGN:
-      return 2;
-    default:
-      return 0;
-  }
-}
-
-te_type te_expr_result_type(const te_expr * expr) {
+constexpr te_int te_expr_size(const te_expr * expr) {
   if (!expr) {
-    return TE_ERROR;
-  } else if (expr->opcode == TE_OP_STACK_REF) {
-    // always yields a ref
-    return te_type(expr->type & ~TE_CONSTANT);
-  } else if (expr->opcode == TE_OP_FUNCTION) {
-    return expr->fn.return_type;
-  } else {
-    return expr->type;
+    return -1;
   }
+
+  switch (expr->opcode) {
+    case TE_OP_ERROR:
+      return 0;
+    case TE_OP_VALUE:
+      return sizeof(te_value_expr) - sizeof(te_value) + reinterpret_cast<const te_value_expr *>(expr)->size;
+    case TE_OP_STACK_REF:
+      return sizeof(te_stack_ref_expr);
+    case TE_OP_DEREF:
+      return sizeof(te_deref_expr);
+    case TE_OP_ASSIGN:
+      return sizeof(te_assign_expr);
+    case TE_OP_CALL:
+      return sizeof(te_call_expr) + sizeof(te_expr *) * reinterpret_cast<const te_call_expr *>(expr)->fn.param_count;
+    case TE_OP_SUITE:
+      return sizeof(te_suite_expr) + sizeof(te_expr *) * reinterpret_cast<const te_suite_expr *>(expr)->stmt_count;
+    case TE_OP_JMP:
+      return sizeof(te_jmp_op);
+    case TE_OP_JMP_REF:
+      return sizeof(te_jmp_ref_op);
+    case TE_OP_JMP_IF:
+      return sizeof(te_jmp_if_op);
+    case TE_OP_JMP_IF_NOT:
+      return sizeof(te_jmp_if_not_op);
+    case TE_OP_RETURN:
+      return sizeof(te_return_op);
+  }
+  
+  te_printf("internal error: invalid opcode %02x", expr->opcode);
+  return -1;
 }
 
-static_assert(sizeof(te_expr) == (sizeof(te_opcode) + sizeof(te_type) + sizeof(uint16_t) + sizeof(te_value)));
-inline te_expr * new_value_expr(te_type type, te_value value) {
+inline te_expr * new_value_expr(te_type type, const te_value &value) {
   const int value_size = te_size_of(type);
-  const int size = 4 + value_size;
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+  const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
+  te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
   ret->type = type;
   ret->size = value_size;
@@ -625,122 +615,117 @@ inline te_expr * new_deref_expr(te_type target_type, te_expr * e) {
   if (e == nullptr) {
     return nullptr;
   }
-  te_type result_type = te_expr_result_type(e);
-  if (result_type == target_type || result_type == TE_ERROR) {
+
+  te_type dereferenced_type = te_type(e->type | TE_CONSTANT);
+  if (e->type == target_type || e->type == TE_ERROR) {
     return e;
-  } else if ((result_type | TE_CONSTANT) != target_type) {
+  } else if (dereferenced_type != target_type) {
 #ifdef TE_DEBUG_COMPILE
     te_printf("internal error: cannot deref ");
-    te_print_type_name(result_type);
+    te_print_type_name(e->type);
     te_printf(" to ");
     te_print_type_name(target_type);
     te_printf("\n");
 #endif
-    e->opcode = TE_OP_VALUE;
+    e->opcode = TE_OP_ERROR;
     e->type = TE_ERROR;
-    e->size = 0;
     return e;
   }
 
-  const int value_size = te_size_of(static_cast<te_type>(result_type | TE_CONSTANT));
-  const int size = 4 + value_size;
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+  const int value_size = te_size_of(dereferenced_type);
+  const int size = sizeof(te_deref_expr);
+  te_deref_expr * ret = static_cast<te_deref_expr *>(malloc(size));
   ret->opcode = TE_OP_DEREF;
-  ret->type = static_cast<te_type>(result_type | TE_CONSTANT);
+  ret->type = dereferenced_type;
   ret->size = value_size;
-  ret->opargs[0] = e;
+  ret->arg = e;
   return ret;
 }
 
-inline te_expr * new_jmp_expr(uint16_t offset) {
-  const int size = 4;
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+inline te_jmp_op * new_jmp_op(uint16_t offset) {
+  const int size = sizeof(te_jmp_op);
+  te_jmp_op * ret = static_cast<te_jmp_op *>(malloc(size));
   ret->opcode = TE_OP_JMP;
   ret->offset = offset;
   return ret;
 }
 
-inline te_expr * new_jmp_ref_expr(uint16_t * offset_ptr) {
-  const int size = 4 + sizeof(offset_ptr);
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+inline te_jmp_ref_op * new_jmp_ref_op(uint16_t * offset_ptr) {
+  const int size = sizeof(te_jmp_ref_op);
+  te_jmp_ref_op * ret = static_cast<te_jmp_ref_op *>(malloc(size));
   ret->opcode = TE_OP_JMP_REF;
-  ret->value.ptr = offset_ptr;
+  ret->offset_ref = offset_ptr;
   return ret;
 }
 
-inline te_expr * new_jmp_if_expr(uint16_t offset, te_expr * e) {
+inline te_jmp_if_op * new_jmp_if_op(uint16_t offset, te_expr * e) {
   e = new_deref_expr(TE_INT, e);
   if (e == nullptr) {
     return nullptr;
   }
-  const int size = 4 + sizeof(te_expr *);
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+  const int size = sizeof(te_jmp_if_op);
+  te_jmp_if_op * ret = static_cast<te_jmp_if_op *>(malloc(size));
   ret->opcode = TE_OP_JMP_IF;
   ret->offset = offset;
-  ret->opargs[0] = e;
+  ret->condition = e;
   return ret;
 }
 
-inline te_expr * new_jmp_if_not_expr(uint16_t offset, te_expr * e) {
+inline te_jmp_if_not_op * new_jmp_if_not_op(uint16_t offset, te_expr * e) {
   e = new_deref_expr(TE_INT, e);
   if (e == nullptr) {
     return nullptr;
   }
-  const int size = 4 + sizeof(te_expr *);
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+  const int size = sizeof(te_jmp_if_not_op);
+  te_jmp_if_not_op * ret = static_cast<te_jmp_if_not_op *>(malloc(size));
   ret->opcode = TE_OP_JMP_IF_NOT;
   ret->offset = offset;
-  ret->opargs[0] = e;
+  ret->condition = e;
   return ret;
 }
 
-inline te_expr * new_return_expr(te_type return_type, te_expr * e) {
+inline te_return_op * new_return_op(te_type return_type, te_expr * e) {
   e = new_deref_expr(return_type, e);
   if (e == nullptr) {
     return nullptr;
   }
-  const int size = 4 + sizeof(te_expr *);
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+  const int size = sizeof(te_return_op);
+  te_return_op * ret = static_cast<te_return_op *>(malloc(size));
   ret->opcode = TE_OP_RETURN;
-  ret->type = e->type;
-  ret->size = te_size_of(e->type);
-  ret->opargs[0] = e;
+  ret->arg = e;
   return ret;
 }
 
-inline te_expr * new_function_value_expr(te_type type, te_fn_obj fn, te_expr * args[], const int arg_count) {
-  const int args_size = arg_count * sizeof(te_expr *);
-  const int size = 4 + sizeof(te_fn_obj) + args_size;
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
-  ret->opcode = TE_OP_FUNCTION;
-  ret->type = type;
-  ret->size = 0;
+inline te_expr * new_call_expr(const te_fn_obj &fn, te_expr * args[], const int arg_count) {
+  const int args_size = sizeof(te_expr *) * arg_count;
+  const int size = sizeof(te_call_expr) + args_size;
+  te_call_expr * ret = static_cast<te_call_expr *>(malloc(size));
+  ret->opcode = TE_OP_CALL;
+  ret->type = fn.return_type;
+  ret->arg_stack_size = 0;
   for (int i = 0; i < arg_count; ++i) {
-    ret->size += te_size_of(fn.param_types[i]);
+    ret->arg_stack_size += te_size_of(fn.param_types[i]);
   }
 #ifdef TE_DEBUG_COMPILE
   if (fn.param_count != arg_count) {
-    te_printf("internal error: expected %d args, got %d!\n", int(fn.param_count), int(arg_count));
-    ret->opcode = TE_OP_VALUE;
+    te_printf("internal error: expected %d args, got %d!\n", fn.param_count, arg_count);
+    ret->opcode = TE_OP_ERROR;
     ret->type = TE_ERROR;
-    ret->size = 0;
     return ret;
   }
 
   if (arg_count > TE_PARAM_COUNT_MAX) {
-    te_printf("internal error: %d is too many parameters!\n", int(arg_count));
-    ret->opcode = TE_OP_VALUE;
+    te_printf("error: %d is too many parameters! max parameters: %d\n", arg_count, TE_PARAM_COUNT_MAX);
+    ret->opcode = TE_OP_ERROR;
     ret->type = TE_ERROR;
-    ret->size = 0;
     return ret;
   }
 
   for (int i = 0; i < arg_count; ++i) {
     if (args[i] == nullptr) {
       te_printf("internal error: arg %d is null!\n", i);
-      ret->opcode = TE_OP_VALUE;
+      ret->opcode = TE_OP_ERROR;
       ret->type = TE_ERROR;
-      ret->size = 0;
       return ret;
     }
   }
@@ -748,17 +733,16 @@ inline te_expr * new_function_value_expr(te_type type, te_fn_obj fn, te_expr * a
   ret->fn = fn;
 
   for (int i = 0; i < arg_count; ++i) {
-    ret->fn.args[i] = new_deref_expr(fn.param_types[i], args[i]);
+    ret->args[i] = new_deref_expr(fn.param_types[i], args[i]);
 #ifdef TE_DEBUG_COMPILE
-    if (ret->fn.args[i] == nullptr) {
+    if (ret->args[i] == nullptr) {
       te_printf("internal error: arg %d does not match parameter! expected ", i);
       te_print_type_name(fn.param_types[i]);
       te_printf(", got ");
-      te_print_type_name(te_expr_result_type(args[i]));
+      te_print_type_name(args[i]->type);
       te_printf("\n");
-      ret->opcode = TE_OP_VALUE;
+      ret->opcode = TE_OP_ERROR;
       ret->type = TE_ERROR;
-      ret->size = 0;
       return ret;
     }
 #endif
@@ -767,75 +751,94 @@ inline te_expr * new_function_value_expr(te_type type, te_fn_obj fn, te_expr * a
   return ret;
 }
 
-inline te_expr * new_function_expr(te_type type, te_function fnptr, void * context, te_type return_type, const te_type param_types[], te_expr * args[], const int arg_count) {
+inline te_expr * new_call_expr(te_function fnptr, void * context, bool pure, te_type return_type, const te_type param_types[], te_expr * args[], const int arg_count) {
   te_fn_obj fn;
   fn.ptr = fnptr;
   fn.context = context;
+  fn.pure = pure;
   fn.param_count = arg_count;
   fn.return_type = return_type;
   for (int i = 0; i < arg_count; ++i) {
     fn.param_types[i] = param_types[i];
   }
-  return new_function_value_expr(type, fn, args, arg_count);
+  return new_call_expr(fn, args, arg_count);
 }
 
-inline te_expr * new_suite_expr(te_type return_type, uint16_t stack_size, te_expr * stmts[], const int stmt_count) {
-  const int size = 4 + sizeof(te_expr *) * (stmt_count + 1);
-  te_expr * ret = static_cast<te_expr *>(malloc(size));
+inline te_expr * new_suite_expr(te_type return_type, uint16_t stack_size, te_op * stmts[], const int stmt_count) {
+  const int size = sizeof(te_suite_expr) + sizeof(te_expr *) * stmt_count;
+  te_suite_expr * ret = static_cast<te_suite_expr *>(malloc(size));
   memset(ret, 0, size);
   ret->opcode = TE_OP_SUITE;
   ret->type = return_type;
-  ret->size = stack_size;
-  memcpy(ret->opargs, stmts, stmt_count * sizeof(te_expr *));
+  ret->stack_size = stack_size;
+  ret->stmt_count = stmt_count;
+  memcpy(ret->stmts, stmts, stmt_count * sizeof(te_expr *));
   return ret;
 }
 
-inline void te_free_args(te_expr * n) {
+void te_free_args(te_op * n) {
   if (!n) return;
   switch (n->opcode) {
+    case TE_OP_ERROR:
     case TE_OP_VALUE:
-      break;
-    case TE_OP_DEREF:
-      te_free(n->opargs[0]);
-      break;
-    case TE_OP_FUNCTION: {
-      for (int i = n->fn.param_count - 1; i >= 0; --i) {
-        te_free(n->fn.args[i]);
-      }
-    }
-      break;
-    case TE_OP_SUITE: {
-      for (te_expr * const * it = n->opargs; *it; ++it) {
-        te_free(*it);
-      }
-    }
-      break;
     case TE_OP_STACK_REF:
       break;
+    case TE_OP_DEREF: {
+      te_free(reinterpret_cast<te_deref_expr *>(n)->arg);
+    } break;
     case TE_OP_ASSIGN: {
-      te_free(n->opargs[1]);
-      te_free(n->opargs[0]);
-    }
-      break;
+      te_free(reinterpret_cast<te_assign_expr *>(n)->rhs);
+      te_free(reinterpret_cast<te_assign_expr *>(n)->lhs);
+    } break;
+    case TE_OP_CALL: {
+      te_call_expr *ce = reinterpret_cast<te_call_expr *>(n);
+      for (int i = int(ce->fn.param_count) - 1; i >= 0; --i) {
+        te_free(ce->args[i]);
+      }
+    } break;
+    case TE_OP_SUITE: {
+      te_suite_expr *se = reinterpret_cast<te_suite_expr *>(n);
+      for (int i = int(se->stmt_count) - 1; i >= 0; --i) {
+        te_free(se->stmts[i]);
+      }
+    } break;
     case TE_OP_JMP:
     case TE_OP_JMP_REF:
       break;
-    case TE_OP_JMP_IF:
+    case TE_OP_JMP_IF: {
+      te_free(reinterpret_cast<te_jmp_if_op *>(n)->condition);
+    } break;
     case TE_OP_JMP_IF_NOT: {
-      te_free(n->opargs[0]);
-    }
-      break;
+      te_free(reinterpret_cast<te_jmp_if_not_op *>(n)->condition);
+    } break;
     case TE_OP_RETURN: {
-      te_free(n->opargs[0]);
-    }
-      break;
+      te_free(reinterpret_cast<te_return_op *>(n)->arg);
+    } break;
   }
 }
 
-void te_free(te_expr * n) {
-  if (!n) return;
-  te_free_args(n);
-  free((void *) n);
+void te_free(te_op * e) {
+  if (!e) {
+    return;
+  }
+
+  if (e->opcode == TE_OP_SUITE) {
+    // A suite is the only node whos size can't be know until after its args are allocated.
+    // Copy stmts to stack first to avoid fragmenting heap.
+    te_suite_expr *se = reinterpret_cast<te_suite_expr *>(e);
+    int32_t stmt_count = se->stmt_count;
+    te_expr **stmts = static_cast<te_expr **>(alloca(sizeof(te_expr *) * stmt_count));
+    for (int i = 0; i < stmt_count; ++i) {
+      stmts[i] = se->stmts[i];
+    }
+    free(e);
+    for (int i = stmt_count - 1; i >= 0; --i) {
+      te_free(stmts[i]);
+    }
+  } else {
+    te_free_args(e);
+    free(e);
+  }
 }
 
 namespace te {
@@ -875,13 +878,13 @@ namespace te {
 
   template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
   struct index_value {
-    static type_of<element_tetype<RefType>> call(type_of<RefType> v, int32_t idx) {
+    static type_of<element_tetype<RefType>> call(type_of<RefType> v, te_int idx) {
       return &v->arr[idx];
     }
   };
   template<te_type Type>
   struct index_value<Type, TE_CONSTANT> {
-    static type_of<element_tetype<Type>> call(type_of<Type> v, int32_t idx) {
+    static type_of<element_tetype<Type>> call(type_of<Type> v, te_int idx) {
       return v.arr[idx];
     }
   };
@@ -934,45 +937,45 @@ namespace te {
 
   template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
   struct swizzle2_value {
-    static te_vec2 call(type_of<RefType> v, int32_t i, int32_t j) {
+    static te_vec2 call(type_of<RefType> v, te_int i, te_int j) {
       return {v->arr[i], v->arr[j]};
     }
   };
   template<te_type Type>
   struct swizzle2_value<Type, TE_CONSTANT> {
-    static te_vec2 call(type_of<Type> v, int32_t i, int32_t j) {
+    static te_vec2 call(type_of<Type> v, te_int i, te_int j) {
       return {v.arr[i], v.arr[j]};
     }
   };
 
   template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
   struct swizzle3_value {
-    static te_vec3 call(type_of<RefType> v, int32_t i, int32_t j, int32_t k) {
+    static te_vec3 call(type_of<RefType> v, te_int i, te_int j, te_int k) {
       return {v->arr[i], v->arr[j], v->arr[k]};
     }
   };
   template<te_type Type>
   struct swizzle3_value<Type, TE_CONSTANT> {
-    static te_vec3 call(type_of<Type> v, int32_t i, int32_t j, int32_t k) {
+    static te_vec3 call(type_of<Type> v, te_int i, te_int j, te_int k) {
       return {v.arr[i], v.arr[j], v.arr[k]};
     }
   };
 
   template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
   struct swizzle4_value {
-    static te_vec4 call(type_of<RefType> v, int32_t i, int32_t j, int32_t k, int32_t l) {
+    static te_vec4 call(type_of<RefType> v, te_int i, te_int j, te_int k, te_int l) {
       return {v->arr[i], v->arr[j], v->arr[k], v->arr[l]};
     }
   };
   template<te_type Type>
   struct swizzle4_value<Type, TE_CONSTANT> {
-    static te_vec4 call(type_of<Type> v, int32_t i, int32_t j, int32_t k, int32_t l) {
+    static te_vec4 call(type_of<Type> v, te_int i, te_int j, te_int k, te_int l) {
       return {v.arr[i], v.arr[j], v.arr[k], v.arr[l]};
     }
   };
 
   namespace detail {
-    inline float fac(float a) {/* simplest version of fac */
+    inline te_float fac(te_float a) {/* simplest version of fac */
       if (a < 0.0)
         return NAN;
       if (a > UINT_MAX)
@@ -984,9 +987,9 @@ namespace te {
           return INFINITY;
         result *= i;
       }
-      return (float) result;
+      return (te_float) result;
     }
-    inline float ncr(float n, float r) {
+    inline te_float ncr(te_float n, te_float r) {
       if (n < 0.0 || r < 0.0 || n < r) return NAN;
       if (n > UINT_MAX || r > UINT_MAX) return INFINITY;
       unsigned long int un = (unsigned int) (n), ur = (unsigned int) (r), i;
@@ -1001,11 +1004,11 @@ namespace te {
       return result;
     }
 
-    inline float npr(float n, float r) { return ncr(n, r) * fac(r); }
+    inline te_float npr(te_float n, te_float r) { return ncr(n, r) * fac(r); }
 
-    //float abs2(float n) {return (n<0 ? -n : n);}
+    //te_float abs2(te_float n) {return (n<0 ? -n : n);}
 
-    //float log2(float n) {const float ln2=log(2); return log(n)/ln2;}
+    //te_float log2(te_float n) {const te_float ln2=log(2); return log(n)/ln2;}
 
     template<typename T>
     inline T add(T a, T b) { return a + b; }
@@ -1018,12 +1021,12 @@ namespace te {
     template<typename T>
     inline T mod(T a, T b) { return a % b; }
     template<>
-    inline float mod<float>(float a, float b) { return fmodf(a, b); }
+    inline te_float mod<te_float>(te_float a, te_float b) { return fmodf(a, b); }
 
-    inline float to_radians(float deg) { return deg * (PI / 180.0f); }
-    inline float to_degrees(float rad) { return rad * (180.0f / PI); }
+    inline te_float to_radians(te_float deg) { return deg * (PI / 180.0f); }
+    inline te_float to_degrees(te_float rad) { return rad * (180.0f / PI); }
 
-    inline float sign(float v) {
+    inline te_float sign(te_float v) {
       if (v > 0.0f) {
         return 1.0f;
       } else if (v < 0.0f) {
@@ -1034,15 +1037,15 @@ namespace te {
     }
 
     inline void int_to_float(void *, void * args, void * ret) {
-      *static_cast<float *>(ret) = static_cast<float>(*static_cast<int *>(args));
+      *static_cast<te_float *>(ret) = static_cast<te_float>(*static_cast<te_int *>(args));
     }
 
     inline void float_to_int(void *, void * args, void * ret) {
-      *static_cast<int *>(ret) = static_cast<int>(*static_cast<float *>(args));
+      *static_cast<te_int *>(ret) = static_cast<te_int>(*static_cast<te_float *>(args));
     }
 
     // rest of the code in here only works because of how arguments are packed on the 'stack' and how vecs and mats are stored
-    inline void printf(void *, void * args, void * ret) {
+    inline void printf_impl(void *, void * args, void * ret) {
       te_string str = *static_cast<te_string *>(args);
     }
 
@@ -1055,9 +1058,9 @@ namespace te {
     template<te_type Type>
     void float_to_vec(void *, void * args, void * ret) {
       static_assert(te::is_vec<Type>);
-      float v = *static_cast<float *>(args);
+      te_float v = *static_cast<te_float *>(args);
       for (int i = 0; i < te::element_count<Type>; ++i) {
-        static_cast<float *>(ret)[i] = v;
+        static_cast<te_float *>(ret)[i] = v;
       }
     }
 
@@ -1067,7 +1070,7 @@ namespace te {
 
       init_mem<te_size_of(Type)>(ctx, args, ret);
       constexpr int MatSize = te::element_count<te::element_tetype<Type>>;
-      float v = *static_cast<float *>(args);
+      te_float v = *static_cast<te_float *>(args);
       for (int i = 0; i < MatSize; ++i) {
         static_cast<te::type_of<Type> *>(ret)->arr[i].arr[i] = v;
       }
@@ -1293,45 +1296,45 @@ inline te_fn_obj find_constructor(te_parser_state & s, te_type type, const te_ty
 }
 
 inline const te_variable te_builtins[] = {
-    {"true", TE_INT, te::make_value<int32_t>(1)},
-    {"false", TE_INT, te::make_value<int32_t>(0)},
-    {"E", TE_FLOAT, te::make_value<float>(2.71828182845904523536f)},
-    {"INF", TE_FLOAT, te::make_value<float>(INFINITY)},
-    {"NAN", TE_FLOAT, te::make_value<float>(NAN)},
-    {"PI", TE_FLOAT, te::make_value<float>(PI)},
-    {"TAU", TE_FLOAT, te::make_value<float>(PI * 2.0f)},
-    {"abs", TE_PURE_FUNCTION, te::make_function<fabsf>()},
-    {"acos", TE_PURE_FUNCTION, te::make_function<acosf>()},
-    {"asin", TE_PURE_FUNCTION, te::make_function<asinf>()},
-    {"atan", TE_PURE_FUNCTION, te::make_function<atanf>()},
-    {"atan2", TE_PURE_FUNCTION, te::make_function<atan2f>()},
-    {"ceil", TE_PURE_FUNCTION, te::make_function<ceilf>()},
-    {"cos", TE_PURE_FUNCTION, te::make_function<cosf>()},
-    {"cosh", TE_PURE_FUNCTION, te::make_function<coshf>()},
-    {"degrees", TE_PURE_FUNCTION, te::make_function<te::detail::to_degrees>()},
-    {"exp", TE_PURE_FUNCTION, te::make_function<expf>()},
-    {"fac", TE_PURE_FUNCTION, te::make_function<te::detail::fac>()},
-    {"floor", TE_PURE_FUNCTION, te::make_function<floorf>()},
-    {"ln", TE_PURE_FUNCTION, te::make_function<logf>()},
+    {"true", TE_INT, te::make_value<te_int>(1)},
+    {"false", TE_INT, te::make_value<te_int>(0)},
+    {"E", TE_FLOAT, te::make_value<te_float>(2.71828182845904523536f)},
+    {"INF", TE_FLOAT, te::make_value<te_float>(INFINITY)},
+    {"NAN", TE_FLOAT, te::make_value<te_float>(NAN)},
+    {"PI", TE_FLOAT, te::make_value<te_float>(PI)},
+    {"TAU", TE_FLOAT, te::make_value<te_float>(PI * 2.0f)},
+    {"abs", TE_FUNCTION, te::make_pure_function<fabsf>()},
+    {"acos", TE_FUNCTION, te::make_pure_function<acosf>()},
+    {"asin", TE_FUNCTION, te::make_pure_function<asinf>()},
+    {"atan", TE_FUNCTION, te::make_pure_function<atanf>()},
+    {"atan2", TE_FUNCTION, te::make_pure_function<atan2f>()},
+    {"ceil", TE_FUNCTION, te::make_pure_function<ceilf>()},
+    {"cos", TE_FUNCTION, te::make_pure_function<cosf>()},
+    {"cosh", TE_FUNCTION, te::make_pure_function<coshf>()},
+    {"degrees", TE_FUNCTION, te::make_pure_function<te::detail::to_degrees>()},
+    {"exp", TE_FUNCTION, te::make_pure_function<expf>()},
+    {"fac", TE_FUNCTION, te::make_pure_function<te::detail::fac>()},
+    {"floor", TE_FUNCTION, te::make_pure_function<floorf>()},
+    {"ln", TE_FUNCTION, te::make_pure_function<logf>()},
 #ifdef TE_NAT_LOG
-    {"log",     TE_PURE_FUNCTION, te::make_function<logf>()},
+    {"log",     TE_FUNCTION, te::make_pure_function<logf>()},
 #else
-    {"log", TE_PURE_FUNCTION, te::make_function<log10f>()},
+    {"log", TE_FUNCTION, te::make_pure_function<log10f>()},
 #endif
-    {"log10", TE_PURE_FUNCTION, te::make_function<log10f>()},
-    {"log2", TE_PURE_FUNCTION, te::make_function<log2f>()},
-    {"mod", TE_PURE_FUNCTION, te::make_function<fmodf>()},
-    {"ncr", TE_PURE_FUNCTION, te::make_function<te::detail::ncr>()},
-    {"npr", TE_PURE_FUNCTION, te::make_function<te::detail::npr>()},
-    {"pow", TE_PURE_FUNCTION, te::make_function<powf>()},
-    {"radians", TE_PURE_FUNCTION, te::make_function<te::detail::to_radians>()},
-    {"round", TE_PURE_FUNCTION, te::make_function<roundf>()},
-    {"sign", TE_PURE_FUNCTION, te::make_function<te::detail::sign>()},
-    {"sin", TE_PURE_FUNCTION, te::make_function<sinf>()},
-    {"sinh", TE_PURE_FUNCTION, te::make_function<sinhf>()},
-    {"sqrt", TE_PURE_FUNCTION, te::make_function<sqrtf>()},
-    {"tan", TE_PURE_FUNCTION, te::make_function<tanf>()},
-    {"tanh", TE_PURE_FUNCTION, te::make_function<tanhf>()},
+    {"log10", TE_FUNCTION, te::make_pure_function<log10f>()},
+    {"log2", TE_FUNCTION, te::make_pure_function<log2f>()},
+    {"mod", TE_FUNCTION, te::make_pure_function<fmodf>()},
+    {"ncr", TE_FUNCTION, te::make_pure_function<te::detail::ncr>()},
+    {"npr", TE_FUNCTION, te::make_pure_function<te::detail::npr>()},
+    {"pow", TE_FUNCTION, te::make_pure_function<powf>()},
+    {"radians", TE_FUNCTION, te::make_pure_function<te::detail::to_radians>()},
+    {"round", TE_FUNCTION, te::make_pure_function<roundf>()},
+    {"sign", TE_FUNCTION, te::make_pure_function<te::detail::sign>()},
+    {"sin", TE_FUNCTION, te::make_pure_function<sinf>()},
+    {"sinh", TE_FUNCTION, te::make_pure_function<sinhf>()},
+    {"sqrt", TE_FUNCTION, te::make_pure_function<sqrtf>()},
+    {"tan", TE_FUNCTION, te::make_pure_function<tanf>()},
+    {"tanh", TE_FUNCTION, te::make_pure_function<tanhf>()},
 };
 
 inline int te_builtins_count = sizeof(te_builtins) / sizeof(te_variable);
@@ -1450,9 +1453,9 @@ inline void next_token(te_parser_state & s) {
     /* Try reading a number. */
     if (isdigit(s.start[0]) || (s.start[0] == '.' && isdigit(s.start[1]))) {
       char * parsed_int_end;
-      int32_t parsed_int = strtol(s.start, &parsed_int_end, 0);
+      te_int parsed_int = strtol(s.start, &parsed_int_end, 0);
       char * parsed_float_end;
-      float parsed_float = strtof(s.start, &parsed_float_end);
+      te_float parsed_float = strtof(s.start, &parsed_float_end);
       if (parsed_float_end > parsed_int_end) {
         // strtof parsed more, use that
         s.end = parsed_float_end;
@@ -1750,8 +1753,8 @@ inline void next_token(te_parser_state & s) {
       case '\t':
         break;
       default: {
-#ifdef TE_DEBUG_COMPILE
         te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
         te_printf("error: unrecognised token!\n");
 #endif
         te_print_error(s);
@@ -1770,29 +1773,29 @@ inline te_fn_obj te_get_index_func(te_type type) {
 
   switch (type) {
     case TE_VEC2:
-      return te::make_function<te::index_value<TE_VEC2>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC2>::call>();
     case TE_VEC3:
-      return te::make_function<te::index_value<TE_VEC3>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC3>::call>();
     case TE_VEC4:
-      return te::make_function<te::index_value<TE_VEC4>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC4>::call>();
     case TE_MAT2:
-      return te::make_function<te::index_value<TE_MAT2>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT2>::call>();
     case TE_MAT3:
-      return te::make_function<te::index_value<TE_MAT3>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT3>::call>();
     case TE_MAT4:
-      return te::make_function<te::index_value<TE_MAT4>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT4>::call>();
     case TE_VEC2_REF:
-      return te::make_function<te::index_value<TE_VEC2_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC2_REF>::call>();
     case TE_VEC3_REF:
-      return te::make_function<te::index_value<TE_VEC3_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC3_REF>::call>();
     case TE_VEC4_REF:
-      return te::make_function<te::index_value<TE_VEC4_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_VEC4_REF>::call>();
     case TE_MAT2_REF:
-      return te::make_function<te::index_value<TE_MAT2_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT2_REF>::call>();
     case TE_MAT3_REF:
-      return te::make_function<te::index_value<TE_MAT3_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT3_REF>::call>();
     case TE_MAT4_REF:
-      return te::make_function<te::index_value<TE_MAT4_REF>::call>();
+      return te::make_pure_function<te::index_value<TE_MAT4_REF>::call>();
     default:
       break;
   }
@@ -1806,17 +1809,17 @@ inline te_fn_obj te_get_swizzle2_func(te_type type) {
 
   switch (type) {
     case TE_VEC2_REF:
-      return te::make_function<te::swizzle2_value<TE_VEC2_REF>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC2_REF>::call>();
     case TE_VEC3_REF:
-      return te::make_function<te::swizzle2_value<TE_VEC3_REF>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC3_REF>::call>();
     case TE_VEC4_REF:
-      return te::make_function<te::swizzle2_value<TE_VEC4_REF>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC4_REF>::call>();
     case TE_VEC2:
-      return te::make_function<te::swizzle2_value<TE_VEC2>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC2>::call>();
     case TE_VEC3:
-      return te::make_function<te::swizzle2_value<TE_VEC3>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC3>::call>();
     case TE_VEC4:
-      return te::make_function<te::swizzle2_value<TE_VEC4>::call>();
+      return te::make_pure_function<te::swizzle2_value<TE_VEC4>::call>();
     default:
       break;
   }
@@ -1830,17 +1833,17 @@ inline te_fn_obj te_get_swizzle3_func(te_type type) {
 
   switch (type) {
     case TE_VEC2_REF:
-      return te::make_function<te::swizzle3_value<TE_VEC2_REF>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC2_REF>::call>();
     case TE_VEC3_REF:
-      return te::make_function<te::swizzle3_value<TE_VEC3_REF>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC3_REF>::call>();
     case TE_VEC4_REF:
-      return te::make_function<te::swizzle3_value<TE_VEC4_REF>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC4_REF>::call>();
     case TE_VEC2:
-      return te::make_function<te::swizzle3_value<TE_VEC2>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC2>::call>();
     case TE_VEC3:
-      return te::make_function<te::swizzle3_value<TE_VEC3>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC3>::call>();
     case TE_VEC4:
-      return te::make_function<te::swizzle3_value<TE_VEC4>::call>();
+      return te::make_pure_function<te::swizzle3_value<TE_VEC4>::call>();
     default:
       break;
   }
@@ -1854,17 +1857,17 @@ inline te_fn_obj te_get_swizzle4_func(te_type type) {
 
   switch (type) {
     case TE_VEC2_REF:
-      return te::make_function<te::swizzle4_value<TE_VEC2_REF>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC2_REF>::call>();
     case TE_VEC3_REF:
-      return te::make_function<te::swizzle4_value<TE_VEC3_REF>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC3_REF>::call>();
     case TE_VEC4_REF:
-      return te::make_function<te::swizzle4_value<TE_VEC4_REF>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC4_REF>::call>();
     case TE_VEC2:
-      return te::make_function<te::swizzle4_value<TE_VEC2>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC2>::call>();
     case TE_VEC3:
-      return te::make_function<te::swizzle4_value<TE_VEC3>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC3>::call>();
     case TE_VEC4:
-      return te::make_function<te::swizzle4_value<TE_VEC4>::call>();
+      return te::make_pure_function<te::swizzle4_value<TE_VEC4>::call>();
     default:
       break;
   }
@@ -1878,37 +1881,37 @@ inline te_fn_obj te_get_negate_func(te_type type) {
 
   switch (type) {
     case TE_INT:
-      return te::make_function<te::negate_value<TE_INT>::call>();
+      return te::make_pure_function<te::negate_value<TE_INT>::call>();
     case TE_FLOAT:
-      return te::make_function<te::negate_value<TE_FLOAT>::call>();
+      return te::make_pure_function<te::negate_value<TE_FLOAT>::call>();
     case TE_VEC2:
-      return te::make_function<te::negate_value<TE_VEC2>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC2>::call>();
     case TE_VEC3:
-      return te::make_function<te::negate_value<TE_VEC3>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC3>::call>();
     case TE_VEC4:
-      return te::make_function<te::negate_value<TE_VEC4>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC4>::call>();
     case TE_MAT2:
-      return te::make_function<te::negate_value<TE_MAT2>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT2>::call>();
     case TE_MAT3:
-      return te::make_function<te::negate_value<TE_MAT3>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT3>::call>();
     case TE_MAT4:
-      return te::make_function<te::negate_value<TE_MAT4>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT4>::call>();
     case TE_INT_REF:
-      return te::make_function<te::negate_value<TE_INT_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_INT_REF>::call>();
     case TE_FLOAT_REF:
-      return te::make_function<te::negate_value<TE_FLOAT_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_FLOAT_REF>::call>();
     case TE_VEC2_REF:
-      return te::make_function<te::negate_value<TE_VEC2_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC2_REF>::call>();
     case TE_VEC3_REF:
-      return te::make_function<te::negate_value<TE_VEC3_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC3_REF>::call>();
     case TE_VEC4_REF:
-      return te::make_function<te::negate_value<TE_VEC4_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_VEC4_REF>::call>();
     case TE_MAT2_REF:
-      return te::make_function<te::negate_value<TE_MAT2_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT2_REF>::call>();
     case TE_MAT3_REF:
-      return te::make_function<te::negate_value<TE_MAT3_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT3_REF>::call>();
     case TE_MAT4_REF:
-      return te::make_function<te::negate_value<TE_MAT4_REF>::call>();
+      return te::make_pure_function<te::negate_value<TE_MAT4_REF>::call>();
     default:
       break;
   }
@@ -1987,7 +1990,7 @@ namespace te::detail {
     TA a = *ap;
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
-      float sum = 0.0f;
+      te_float sum = 0.0f;
       for (int j = 0; j < MatSize; ++j) {
         sum += te::detail::mul(a.arr[i].arr[j], b.arr[j]);
       }
@@ -2005,7 +2008,7 @@ namespace te::detail {
     TA a = *ap;
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
-      float sum = 0.0f;
+      te_float sum = 0.0f;
       for (int j = 0; j < MatSize; ++j) {
         sum += te::detail::mul(a.arr[i], b.arr[i].arr[j]);
       }
@@ -2024,7 +2027,7 @@ namespace te::detail {
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
       for (int j = 0; j < MatSize; ++j) {
-        float sum = 0.0f;
+        te_float sum = 0.0f;
         for (int k = 0; k < MatSize; ++k) {
           sum += te::detail::mul(a.arr[i].arr[k], b.arr[k].arr[j]);
         }
@@ -2034,7 +2037,7 @@ namespace te::detail {
   }
 }
 
-#define TE_OP_FUNCTION(FNAME, TRET, TA, TB) te::detail::make_function_raw<FNAME<te::type_of<(TRET)>, te::type_of<(TA)>, te::type_of<(TB)>>, (TA), (TA), (TB)>::call()
+#define TE_OP_FUNCTION(FNAME, TRET, TA, TB) te::detail::make_function_raw<FNAME<te::type_of<(TRET)>, te::type_of<(TA)>, te::type_of<(TB)>>, true, (TA), (TA), (TB)>::call()
 
 #define CASE_SCALAR_SCALAR_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_OP_FUNCTION(te::detail::fn_scalar_op_scalar<(OP)>::call, TA, TA, TB)
 #define CASE_VEC_VEC_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_OP_FUNCTION(te::detail::fn_vec_op_vec<(OP)>::call, TA, TA, TB)
@@ -2051,7 +2054,7 @@ namespace te::detail {
 //     te_mat4 b = *(te_mat4*)(&ap[1]);
 //     for (int i = 0; i < 4; ++i) {
 //         for (int j = 0; j < 4; ++j) {
-//             float sum = 0.0f;
+//             te_float sum = 0.0f;
 //             for (int k = 0; k < 4; ++k) {
 //                 sum += te::detail::mul(a.arr[i].arr[k], b.arr[k].arr[j]);
 //             }
@@ -2064,11 +2067,11 @@ inline te_fn_obj te_get_add_func(te_type typeA, te_type typeB) {
   te_fn_obj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::add<int32_t>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::add<float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::add<float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::add<float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::add<float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TE_INT, te::detail::add<te_int>, TE_INT);
+  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::add<te_float>, TE_FLOAT);
+  CASE_VEC_VEC_(TE_VEC2, te::detail::add<te_float>, TE_VEC2);
+  CASE_VEC_VEC_(TE_VEC3, te::detail::add<te_float>, TE_VEC3);
+  CASE_VEC_VEC_(TE_VEC4, te::detail::add<te_float>, TE_VEC4);
 
   return ret;
 }
@@ -2077,11 +2080,11 @@ inline te_fn_obj te_get_sub_func(te_type typeA, te_type typeB) {
   te_fn_obj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::sub<int32_t>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::sub<float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::sub<float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::sub<float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::sub<float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TE_INT, te::detail::sub<te_int>, TE_INT);
+  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::sub<te_float>, TE_FLOAT);
+  CASE_VEC_VEC_(TE_VEC2, te::detail::sub<te_float>, TE_VEC2);
+  CASE_VEC_VEC_(TE_VEC3, te::detail::sub<te_float>, TE_VEC3);
+  CASE_VEC_VEC_(TE_VEC4, te::detail::sub<te_float>, TE_VEC4);
 
   return ret;
 }
@@ -2090,17 +2093,17 @@ inline te_fn_obj te_get_mod_func(te_type typeA, te_type typeB) {
   te_fn_obj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mod<int32_t>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mod<float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::mod<float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::mod<float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::mod<float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mod<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mod<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mod<float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mod<te_int>, TE_INT);
+  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mod<te_float>, TE_FLOAT);
+  CASE_VEC_VEC_(TE_VEC2, te::detail::mod<te_float>, TE_VEC2);
+  CASE_VEC_VEC_(TE_VEC3, te::detail::mod<te_float>, TE_VEC3);
+  CASE_VEC_VEC_(TE_VEC4, te::detail::mod<te_float>, TE_VEC4);
+  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mod<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mod<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mod<te_float>, TE_FLOAT);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC2);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC3);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC4);
 
   return ret;
 }
@@ -2109,23 +2112,23 @@ inline te_fn_obj te_get_mul_func(te_type typeA, te_type typeB) {
   te_fn_obj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mul<int32_t>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mul<float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::mul<float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::mul<float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::mul<float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mul<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mul<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mul<float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_MAT2, te::detail::mul<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT3, te::detail::mul<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT4, te::detail::mul<float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_MAT2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_MAT3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<float>, TE_MAT4);
+  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mul<te_int>, TE_INT);
+  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_VEC_VEC_(TE_VEC2, te::detail::mul<te_float>, TE_VEC2);
+  CASE_VEC_VEC_(TE_VEC3, te::detail::mul<te_float>, TE_VEC3);
+  CASE_VEC_VEC_(TE_VEC4, te::detail::mul<te_float>, TE_VEC4);
+  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC2);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC3);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC4);
+  CASE_VEC_SCALAR_(TE_MAT2, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_MAT3, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_MAT4, te::detail::mul<te_float>, TE_FLOAT);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT2);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT3);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT4);
   CASE_MATRIX_VEC_MUL_(TE_MAT2, TE_VEC2);
   CASE_MATRIX_VEC_MUL_(TE_MAT3, TE_VEC3);
   CASE_MATRIX_VEC_MUL_(TE_MAT4, TE_VEC4);
@@ -2143,23 +2146,23 @@ inline te_fn_obj te_get_div_func(te_type typeA, te_type typeB) {
   te_fn_obj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::div<int32_t>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::div<float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::div<float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::div<float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::div<float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::div<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::div<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::div<float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_MAT2, te::detail::div<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT3, te::detail::div<float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT4, te::detail::div<float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_MAT2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_MAT3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<float>, TE_MAT4);
+  CASE_SCALAR_SCALAR_(TE_INT, te::detail::div<te_int>, TE_INT);
+  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::div<te_float>, TE_FLOAT);
+  CASE_VEC_VEC_(TE_VEC2, te::detail::div<te_float>, TE_VEC2);
+  CASE_VEC_VEC_(TE_VEC3, te::detail::div<te_float>, TE_VEC3);
+  CASE_VEC_VEC_(TE_VEC4, te::detail::div<te_float>, TE_VEC4);
+  CASE_VEC_SCALAR_(TE_VEC2, te::detail::div<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC3, te::detail::div<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_VEC4, te::detail::div<te_float>, TE_FLOAT);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC2);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC3);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC4);
+  CASE_VEC_SCALAR_(TE_MAT2, te::detail::div<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_MAT3, te::detail::div<te_float>, TE_FLOAT);
+  CASE_VEC_SCALAR_(TE_MAT4, te::detail::div<te_float>, TE_FLOAT);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT2);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT3);
+  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT4);
 
   return ret;
 }
@@ -2212,7 +2215,7 @@ inline te_expr * base(te_parser_state & s) {
           te_expr * arg = expr(s);
 
           if (arg_count < TE_PARAM_COUNT_MAX) {
-            arg_types[arg_count] = te_expr_result_type(arg);
+            arg_types[arg_count] = arg ? arg->type : TE_ERROR;
             args[arg_count] = arg;
             ++arg_count;
           } else {
@@ -2226,12 +2229,10 @@ inline te_expr * base(te_parser_state & s) {
           }
         }
 
-        te_type fn_type = TE_FUNCTION;
         te_fn_obj fn;
         if (s.token == TOK_CLOSE_PAREN) {
           er.set_end(s.end);
           if (is_typename) {
-            fn_type = TE_PURE_FUNCTION;
             fn = find_constructor(s, type, arg_types, arg_count);
 
             if (!fn.is_valid()) {
@@ -2245,15 +2246,14 @@ inline te_expr * base(te_parser_state & s) {
               valid = false;
               s.parse_error = true;
             } else {
-              fn_type = var->type;
               fn = var->fn;
             }
           }
 
           next_token(s);
         } else {
-#ifdef TE_DEBUG_COMPILE
           te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
           te_printf("error: missing ')'!\n");
 #endif
           te_print_error(s);
@@ -2261,10 +2261,10 @@ inline te_expr * base(te_parser_state & s) {
         }
 
         if (valid) {
-          ret = new_function_value_expr(fn_type, fn, args, arg_count);
+          ret = new_call_expr(fn, args, arg_count);
 #ifdef TE_DEBUG_PEDANTIC
           te_printf("function value: ");
-          te_print_value(ret->type, ret->value);
+          te_print_value(ret ? ret->type : TE_ERROR, ret->value);
           te_printf("\n");
 #endif
         } else {
@@ -2278,6 +2278,7 @@ inline te_expr * base(te_parser_state & s) {
         const te_variable * var = find_lookup(s, tok_start, tok_end);
 
         if (var) {
+          // TODO: add a constant falg to variable and add ability to ref non-constant vars
           ret = new_value_expr(var->type, var->value);
 #ifdef TE_DEBUG_PEDANTIC
           te_printf("base is variable, value: ");
@@ -2301,8 +2302,8 @@ inline te_expr * base(te_parser_state & s) {
       if (s.token == TOK_CLOSE_PAREN) {
         next_token(s);
       } else if (ret != nullptr) {
-#ifdef TE_DEBUG_COMPILE
         te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
         te_printf("error: expected ')', got ");
         te_print_token(s.token);
         te_printf("!\n");
@@ -2343,15 +2344,15 @@ inline te_expr * index(te_parser_state & s) {
   te_expr * ret = base(s);
 
   if (s.token == TOK_OPEN_SQUARE_BRACKET) {
-    te_type ret_type = te_expr_result_type(ret);
+    te_type ret_type = ret ? ret->type : TE_ERROR;
 
     next_token(s);
 
     te_expr * idx_expr = nullptr;
 
     if (s.token == TOK_CLOSE_SQUARE_BRACKET) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: missing index!\n");
 #endif
       te_print_error(s);
@@ -2362,7 +2363,7 @@ inline te_expr * index(te_parser_state & s) {
 
     idx_expr = expr(s);
 
-    te_type idx_type = te_expr_result_type(idx_expr);
+    te_type idx_type = idx_expr ? idx_expr->type : TE_ERROR;
 
     te_fn_obj index_fn;
     if ((idx_type | TE_CONSTANT) == TE_INT) {
@@ -2372,8 +2373,8 @@ inline te_expr * index(te_parser_state & s) {
       index_fn = te_fn_obj{};
       index_fn.ptr = &te_noop;
       if (idx_type != TE_ERROR) {
-#ifdef TE_DEBUG_COMPILE
         te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
         te_printf("error: index must be an int! type: ");
         te_print_type_name(idx_type);
         te_printf("\n");
@@ -2382,14 +2383,14 @@ inline te_expr * index(te_parser_state & s) {
       }
       te_free(idx_expr);
       idx_expr = nullptr;
-      idx_type = te_expr_result_type(idx_expr);
+      idx_type = idx_expr ? idx_expr->type : TE_ERROR;
       te_free(ret);
       ret = nullptr;
     }
 
     if (s.token != TOK_CLOSE_SQUARE_BRACKET) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: expected ']', got ");
       te_print_token(s.token);
       te_printf("!\n");
@@ -2419,7 +2420,7 @@ inline te_expr * index(te_parser_state & s) {
       return nullptr;
     }
     te_expr * args[] = {ret, idx_expr};
-    ret = new_function_value_expr(TE_PURE_FUNCTION, index_fn, args, 2);
+    ret = new_call_expr(index_fn, args, 2);
   }
 
 #ifdef TE_DEBUG_PEDANTIC
@@ -2437,13 +2438,13 @@ inline te_expr * attr(te_parser_state & s) {
   /* <attr>      =    <index> { "." ("x" | "y" | "z" | "w" | "r" | "g" | "b" | "a")[1-4] } */
   te_error_record er(s);
   te_expr * ret = index(s);
-  te_type ret_type = te_expr_result_type(ret);
+  te_type ret_type = ret ? ret->type : TE_ERROR;
 
   if (s.token == TOK_DOT) {
     next_token(s);
     if (s.token != TOK_IDENTIFIER) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: expected swizzlers after '.' got ");
       te_print_token(s.token);
       te_printf("!\n");
@@ -2454,7 +2455,7 @@ inline te_expr * attr(te_parser_state & s) {
       return nullptr;
     }
 
-    te_type base_type = te_expr_result_type(ret);
+    te_type base_type = ret ? ret->type : TE_ERROR;
     int swizzle_max = 0;
     switch (base_type) {
       case TE_VEC2:
@@ -2467,10 +2468,10 @@ inline te_expr * attr(te_parser_state & s) {
         swizzle_max = 4;
         break;
       default: {
-#ifdef TE_DEBUG_COMPILE
         te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
         te_printf("error: cannot swizzle ");
-        te_print_type_name(static_cast<te_type>(base_type | TE_CONSTANT));
+        te_print_type_name(base_type);
         te_printf("!\n");
 #endif
         te_print_error(s);
@@ -2502,8 +2503,8 @@ inline te_expr * attr(te_parser_state & s) {
             indices[i] = 3;
             break;
           default: {
-#ifdef TE_DEBUG_COMPILE
             te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
             er.start = c;
             er.end = c + 1;
             te_printf("error: unknown swizzler '%c'!\n", *c);
@@ -2519,8 +2520,8 @@ inline te_expr * attr(te_parser_state & s) {
     }
 
     if (i < 1 || i > swizzle_max) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: too many swizzlers! type: ");
       te_print_type_name(base_type);
       te_printf("\n");
@@ -2560,8 +2561,8 @@ inline te_expr * attr(te_parser_state & s) {
     }
 
     if (!index_fn.is_valid()) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("internal error: no index func! type: ");
       te_print_type_name(ret_type);
       te_printf("\n");
@@ -2574,7 +2575,7 @@ inline te_expr * attr(te_parser_state & s) {
       te_free(ret);
       ret = nullptr;
     } else {
-      ret = new_function_value_expr(TE_PURE_FUNCTION, index_fn, args, i + 1);
+      ret = new_call_expr(index_fn, args, i + 1);
     }
 
     next_token(s);
@@ -2587,28 +2588,28 @@ inline te_expr * attr(te_parser_state & s) {
   return ret;
 }
 
-inline void post_increment(void *, int32_t ** args, int32_t * ret) {
-  *ret = *args[0];
-  ++(*args[0]);
+inline void post_increment(void *, void * args, void * ret) {
+  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
+  ++(*reinterpret_cast<te_int **>(args)[0]);
 }
 
-inline void post_decrement(void *, int32_t ** args, int32_t * ret) {
-  *ret = *args[0];
-  --(*args[0]);
+inline void post_decrement(void *, void * args, void * ret) {
+  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
+  --(*reinterpret_cast<te_int **>(args)[0]);
 }
 
-inline void pre_increment(void *, int32_t ** args, int32_t * ret) {
-  ++(*args[0]);
-  *ret = *args[0];
+inline void pre_increment(void *, void * args, void * ret) {
+  ++(*reinterpret_cast<te_int **>(args)[0]);
+  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
 }
 
-inline void pre_decrement(void *, int32_t ** args, int32_t * ret) {
-  --(*args[0]);
-  *ret = *args[0];
+inline void pre_decrement(void *, void * args, void * ret) {
+  --(*reinterpret_cast<te_int **>(args)[0]);
+  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
 }
 
-inline void bool_not(void *, int32_t * args, int32_t * ret) {
-  *ret = !args[0];
+inline void bool_not(void *, void * args, void * ret) {
+  *reinterpret_cast<te_int *>(ret) = !reinterpret_cast<te_int *>(args)[0];
 }
 
 inline te_expr * factor(te_parser_state & s) {
@@ -2619,36 +2620,37 @@ inline te_expr * factor(te_parser_state & s) {
   /* <factor>    =    {("!" | "-" | "--" | "+" | "++")} <attr> {("--" | "++")} */
   te_error_record er(s);
 
-  int bool_not_flag = 0;
-  int pos = 1;
-  int pre_incdec = 0;
+  bool bool_not_flag = false;
+  bool pos = true;
+  bool pre_incdec = false;
   if (s.token == TOK_ADD) {
+    pos = true;
     next_token(s);
   } else if (s.token == TOK_SUB) {
-    pos = 0;
+    pos = false;
     next_token(s);
   } else if (s.token == TOK_INC) {
-    pos = 1;
-    pre_incdec = 1;
+    pos = true;
+    pre_incdec = true;
     next_token(s);
   } else if (s.token == TOK_DEC) {
-    pos = 0;
-    pre_incdec = 1;
+    pos = false;
+    pre_incdec = true;
     next_token(s);
   } else if (s.token == TOK_BANG) {
-    bool_not_flag = 1;
+    bool_not_flag = true;
     next_token(s);
   }
 
   te_expr * ret = attr(s);
-  te_type ret_type = te_expr_result_type(ret);
+  te_type ret_type = ret ? ret->type : TE_ERROR;
 
   er.set_end(s.end);
 
   if (bool_not_flag) {
     if (ret_type == TE_INT) {
       te_type param_type = TE_INT;
-      ret = new_function_expr(TE_PURE_FUNCTION, (te_function) &bool_not, 0, TE_INT, &param_type, &ret, 1);
+      ret = new_call_expr(&bool_not, nullptr, true, TE_INT, &param_type, &ret, 1);
     } else {
 #ifdef TE_DEBUG_COMPILE
       te_printf("error: '!' op only works on int! type: ");
@@ -2675,9 +2677,9 @@ inline te_expr * factor(te_parser_state & s) {
 
     te_type param_type = TE_INT_REF;
     if (pos) {
-      ret = new_function_expr(TE_PURE_FUNCTION, (te_function) &pre_increment, 0, TE_INT, &param_type, &ret, 1);
+      ret = new_call_expr(&pre_increment, nullptr, true, TE_INT, &param_type, &ret, 1);
     } else {
-      ret = new_function_expr(TE_PURE_FUNCTION, (te_function) &pre_decrement, 0, TE_INT, &param_type, &ret, 1);
+      ret = new_call_expr(&pre_decrement, nullptr, true, TE_INT, &param_type, &ret, 1);
     }
   } else {
     if (pos) {
@@ -2697,11 +2699,11 @@ inline te_expr * factor(te_parser_state & s) {
         return nullptr;
       }
 
-      ret = new_function_value_expr(TE_PURE_FUNCTION, tmpfn, &ret, 1);
+      ret = new_call_expr(tmpfn, &ret, 1);
     }
   }
 
-  ret_type = te_expr_result_type(ret);
+  ret_type = ret ? ret->type : TE_ERROR;
 
   int postfix = 0;
   if (s.token == TOK_INC) {
@@ -2729,9 +2731,9 @@ inline te_expr * factor(te_parser_state & s) {
 
     te_type param_type = TE_INT_REF;
     if (postfix > 0) {
-      ret = new_function_expr(TE_PURE_FUNCTION, (te_function) &post_increment, nullptr, TE_INT, &param_type, &ret, 1);
+      ret = new_call_expr(&post_increment, nullptr, true, TE_INT, &param_type, &ret, 1);
     } else {
-      ret = new_function_expr(TE_PURE_FUNCTION, (te_function) &post_decrement, nullptr, TE_INT, &param_type, &ret, 1);
+      ret = new_call_expr(&post_decrement, nullptr, true, TE_INT, &param_type, &ret, 1);
     }
   }
 
@@ -2750,12 +2752,12 @@ inline te_expr * term(te_parser_state & s) {
   /* <term>      =    <factor> {("*" | "/" | "%") <factor>}+ */
   te_error_record er(s);
   te_expr * ret = factor(s);
-  te_type ret_type = te_expr_result_type(ret);
+  te_type ret_type = ret ? ret->type : TE_ERROR;
 
   do {
     er.set_point(s.start);
 
-    int tok = TOK_NULL;
+    te_token tok = TOK_NULL;
     char c = '?';
     if (s.token == TOK_MUL || s.token == TOK_DIV || s.token == TOK_MOD) {
       tok = s.token;
@@ -2765,7 +2767,7 @@ inline te_expr * term(te_parser_state & s) {
     }
     next_token(s);
     te_expr * rhs = factor(s);
-    te_type rhs_type = te_expr_result_type(rhs);
+    te_type rhs_type = rhs ? rhs->type : TE_ERROR;
 
     er.set_end(s.prev_end);
 
@@ -2802,10 +2804,10 @@ inline te_expr * term(te_parser_state & s) {
       rhs = nullptr;
     } else {
       te_expr * args[] = {ret, rhs};
-      ret = new_function_value_expr(TE_PURE_FUNCTION, fn, args, 2);
+      ret = new_call_expr(fn, args, 2);
     }
 
-    ret_type = te_expr_result_type(ret);
+    ret_type = ret ? ret->type : TE_ERROR;
   } while (true);
 
 #ifdef TE_DEBUG_PEDANTIC
@@ -2823,12 +2825,12 @@ inline te_expr * expr(te_parser_state & s) {
   /* <expr>      =    <term> {("+" | "-") <term>}+ */
   te_error_record er(s);
   te_expr * ret = term(s);
-  te_type ret_type = te_expr_result_type(ret);
+  te_type ret_type = ret ? ret->type: TE_ERROR;
 
   do {
     er.set_point(s.start);
 
-    int tok = TOK_NULL;
+    te_token tok = TOK_NULL;
     char c = '?';
     if (s.token == TOK_ADD || s.token == TOK_SUB) {
       tok = s.token;
@@ -2838,7 +2840,7 @@ inline te_expr * expr(te_parser_state & s) {
     }
     next_token(s);
     te_expr * rhs = term(s);
-    te_type rhs_type = te_expr_result_type(rhs);
+    te_type rhs_type = rhs ? rhs->type : TE_ERROR;
 
     er.set_end(s.prev_end);
 
@@ -2872,10 +2874,10 @@ inline te_expr * expr(te_parser_state & s) {
       rhs = nullptr;
     } else {
       te_expr * args[] = {ret, rhs};
-      ret = new_function_value_expr(TE_PURE_FUNCTION, fn, args, 2);
+      ret = new_call_expr(fn, args, 2);
     }
 
-    ret_type = te_expr_result_type(ret);
+    ret_type = ret ? ret->type : TE_ERROR;
   } while (true);
 
 #ifdef TE_DEBUG_PEDANTIC
@@ -2921,12 +2923,12 @@ inline te_expr * end_function(te_parser_state & s) {
   return ret;
 }
 
-inline void push_stmt(te_parser_state & s, te_expr * e) {
+inline void push_stmt(te_parser_state & s, te_op * e) {
   if (s.stmt_count < TE_MAX_STMT_COUNT) {
     s.stmts[s.stmt_count++] = e;
   } else {
-#ifdef TE_DEBUG_COMPILE
     te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
     te_printf("error: ran out of room for stmts! max=%d\n", TE_MAX_STMT_COUNT);
 #endif
     te_print_error(s);
@@ -2946,8 +2948,8 @@ inline void parse_suite(te_parser_state & s, te_token end_token) {
       next_token(s);
       break;
     } else if (s.token == TOK_END) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: end of input!\n");
 #endif
       te_print_error(s);
@@ -2963,79 +2965,78 @@ inline void parse_suite(te_parser_state & s, te_token end_token) {
 }
 
 inline void parse_if_stmt(te_parser_state & s) {
-    next_token(s);
-    if (s.token != TOK_OPEN_PAREN) {
+  next_token(s);
+  if (s.token != TOK_OPEN_PAREN) {
+    te_error_record er2(s);
 #ifdef TE_DEBUG_COMPILE
-      te_error_record er2(s);
-      te_printf("error: expected '(' got ");
-      te_print_token(s.token);
-      te_printf("!\n");
+    te_printf("error: expected '(' got ");
+    te_print_token(s.token);
+    te_printf("!\n");
 #endif
-      te_print_error(s);
-    }
-    next_token(s);
+    te_print_error(s);
+  }
+  next_token(s);
 
-    te_error_record er(s);
-    te_expr * cond_expr = expr(s);
-    te_type cond_expr_result_type = te_expr_result_type(cond_expr);
+  te_error_record er(s);
+  te_expr * cond_expr = expr(s);
+  te_type cond_expr_result_type = cond_expr ? cond_expr->type : TE_ERROR;
 
-    er.set_end(s.end);
+  er.set_end(s.end);
 
-    if (s.token != TOK_CLOSE_PAREN) {
+  if (s.token != TOK_CLOSE_PAREN) {
+    te_error_record er2(s);
 #ifdef TE_DEBUG_COMPILE
-      te_error_record er2(s);
-      te_printf("error: expected ')' got ");
-      te_print_token(s.token);
-      te_printf("!\n");
+    te_printf("error: expected ')' got ");
+    te_print_token(s.token);
+    te_printf("!\n");
 #endif
-      te_print_error(s);
-    }
+    te_print_error(s);
+  }
 
-    te_expr * jmp_if_expr = new_jmp_if_not_expr(TE_UNKNOWN_OFFSET, cond_expr);
-    push_stmt(s, jmp_if_expr);
+  te_jmp_if_not_op * jmp_if_expr = new_jmp_if_not_op(te_jmp_op::unknown_offset, cond_expr);
+  push_stmt(s, jmp_if_expr);
 
-    if (jmp_if_expr != nullptr && (cond_expr_result_type | TE_CONSTANT) != TE_INT) {
+  if (jmp_if_expr != nullptr && (cond_expr_result_type | TE_CONSTANT) != TE_INT) {
 #ifdef TE_DEBUG_COMPILE
-      te_printf("error: conditional expr must be an int! type: ");
-      te_print_type_name(cond_expr_result_type);
-      te_printf("\n");
+    te_printf("error: conditional expr must be an int! type: ");
+    te_print_type_name(cond_expr_result_type);
+    te_printf("\n");
 #endif
-      te_print_error(s);
-    }
+    te_print_error(s);
+  }
 
+  next_token(s);
+  parse_stmt(s);
+
+  if (s.token == TOK_ELSE) {
     next_token(s);
+    te_jmp_op * jmp_end_expr = new_jmp_op(te_jmp_op::unknown_offset);
+    push_stmt(s, jmp_end_expr);
+    if (jmp_if_expr) jmp_if_expr->offset = s.stmt_count;
     parse_stmt(s);
-
-    if (s.token == TOK_ELSE) {
-      next_token(s);
-      te_expr * jmp_end_expr = new_jmp_expr(TE_UNKNOWN_OFFSET);
-      push_stmt(s, jmp_end_expr);
-      if (jmp_if_expr) jmp_if_expr->offset = s.stmt_count;
-      parse_stmt(s);
-      jmp_end_expr->offset = s.stmt_count;
-    } else {
-      if (jmp_if_expr) jmp_if_expr->offset = s.stmt_count;
-    }
+    jmp_end_expr->offset = s.stmt_count;
+  } else {
+    if (jmp_if_expr) jmp_if_expr->offset = s.stmt_count;
+  }
 }
 
-inline void parse_var_stmt(te_parser_state & s) {
-    te_type decl_type = s.type;
-    next_token(s);
+inline void parse_var_stmt(te_parser_state & s, bool allow_assign) {
+  te_type decl_type = s.type;
+  next_token(s);
 
-    if (s.token != TOK_IDENTIFIER) {
+  if (s.token != TOK_IDENTIFIER) {
+    te_error_record er2(s);
 #ifdef TE_DEBUG_COMPILE
-      te_error_record er2(s);
-      te_printf("error: expected <identifier> got ");
-      te_print_token(s.token);
-      te_printf("!\n");
+    te_printf("error: expected <identifier> got ");
+    te_print_token(s.token);
+    te_printf("!\n");
 #endif
-      te_print_error(s);
-    }
-    te_make_allocate_var(s, s.start, s.end - s.start, s.type);
-    te_string ident{s.start, s.end - s.start};
-    next_token(s);
+    te_print_error(s);
+  }
+  te_make_allocate_var(s, s.start, s.end - s.start, decl_type);
+  next_token(s);
 
-
+  // TODO: finish
 }
 
 inline void parse_return_stmt(te_parser_state & s) {
@@ -3054,7 +3055,7 @@ inline void parse_return_stmt(te_parser_state & s) {
     }
   } else {
     te_expr * e = expr(s);
-    te_type result_type = te_expr_result_type(e);
+    te_type result_type = e ? e->type : TE_ERROR;
 
     er.set_end(s.prev_end);
 
@@ -3070,7 +3071,7 @@ inline void parse_return_stmt(te_parser_state & s) {
 #endif
       te_print_error(s);
     } else {
-      push_stmt(s, new_return_expr(s.return_type, e));
+      push_stmt(s, new_return_op(s.return_type, e));
     }
   }
 }
@@ -3087,25 +3088,24 @@ inline void parse_stmt(te_parser_state & s) {
   } else if (s.token == TOK_IF) {
     parse_if_stmt(s);
   } else {
-    const char * token_start = s.start;
     if (s.token == TOK_TYPENAME) {
-      parse_var_stmt(s);
+      parse_var_stmt(s, true);
     } else if (s.token == TOK_RETURN) {
       parse_return_stmt(s);
     } else {
+      const char * token_start = s.start;
       push_stmt(s, expr(s));
-    }
-
-    if (s.start == token_start) {
-      // don't get stuck
-      next_token(s);
+      if (s.start == token_start) {
+        // don't get stuck
+        next_token(s);
+      }
     }
 
     if (s.token == TOK_SEMICOLON) {
       next_token(s);
     } else {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: expected ';', got ");
       te_print_token(s.token);
       te_printf("!\n");
@@ -3123,9 +3123,7 @@ inline te_expr * parse_program(te_parser_state & s) {
   return end_function(s);
 }
 
-inline te_value te_trash{};
-
-inline void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
+void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
 #ifdef TE_DEBUG_EVAL
 
 #define TE_ERR_FAIL_COND(cond, fail_action, ...)\
@@ -3135,7 +3133,7 @@ inline void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) 
         fail_action;\
     } else ((void)0)
 
-#define TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(chk_type, expected, fail_action, ...)\
+#define TE_CHECK_EXPECTED_TYPE(chk_type, expected, fail_action, ...)\
     if ((chk_type) != (expected)) {\
         te_printf(__VA_ARGS__);\
         te_printf(" expected ");\
@@ -3148,139 +3146,25 @@ inline void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) 
 #else
 
 #define TE_ERR_FAIL_COND(cond, expected, fail_action, ...)
-#define TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(chk_type, expected, fail_action, ...)
+#define TE_CHECK_EXPECTED_TYPE(chk_type, expected, fail_action, ...)
 
 #endif
 
   TE_ERR_FAIL_COND(!n, return, "eval error: null expr!");
 
   switch (n->opcode) {
+    case TE_OP_ERROR: {
+      TE_ERR_FAIL_COND(true, return, "eval error: error op!");
+    } break;
     case TE_OP_VALUE: {
 #ifdef TE_DEBUG_PEDANTIC
       te_printf("TE_OP_VALUE\n");
 #endif
-      memcpy(ret, &n->value, n->size);
-    }
-      break;
-    case TE_OP_DEREF: {
-#ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_DEREF\n");
-#endif
-      void * ref;
-      te_eval_internal(n->opargs[0], p_stack, (te_value *) &ref);
-      memcpy(ret, ref, n->size);
-    }
-      break;
-    case TE_OP_FUNCTION: {
-#ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_FUNCTION\n");
-#endif
-      char * stack = static_cast<char *>(alloca(n->size));
-      {
-        char * stackptr = stack;
-        te_type param_type = TE_ERROR;
-        int param_size = TE_ERROR;
-        for (int i = 0; i < n->fn.param_count; ++i, stackptr += param_size) {
-          param_type = n->fn.param_types[i];
-          param_size = te_size_of(param_type);
+      TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
 
-          TE_ERR_FAIL_COND(!n->fn.args[i], continue, "eval error: fn arg expr ptr is null!");
-          te_type arg_result_type = te_expr_result_type(n->fn.args[i]);
-
-          TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(arg_result_type, param_type, continue, "eval error: argument and parameter types do not match!");
-          te_eval_internal(n->fn.args[i], p_stack, (te_value *) stackptr);
-        }
-      }
-
-      TE_ERR_FAIL_COND(!n->fn.is_valid(), return, "eval error: null function call!");
-      TE_ERR_FAIL_COND(!ret && n->fn.return_type != TE_NULL, return, "eval error: return ptr is null but function returns a value!");
-
-      n->fn.ptr(n->fn.context, (void *) stack, ret);
-    }
-      break;
-    case TE_OP_SUITE: {
-#ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_SUITE\n");
-#endif
-      char * stack = static_cast<char *>(alloca(n->size));
-
-      te_expr * const * exprs = n->opargs;
-      for (te_expr * const * it = exprs; *it;) {
-        te_expr * se = *it;
-        switch (se->opcode) {
-          case TE_OP_JMP: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP\n");
-#endif
-            TE_ERR_FAIL_COND(se->offset == TE_UNKNOWN_OFFSET, return, "eval error: unknown offset!");
-            it = exprs + se->offset;
-            continue;
-          }
-            break;
-          case TE_OP_JMP_REF: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_REF\n");
-#endif
-            const uint16_t offset = *static_cast<uint16_t *>(se->value.ptr);
-            TE_ERR_FAIL_COND(offset == TE_UNKNOWN_OFFSET, return, "eval error: unknown offset!");
-            it = exprs + offset;
-            continue;
-          }
-            break;
-          case TE_OP_JMP_IF: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_IF\n");
-#endif
-            TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(te_expr_result_type(se->opargs[0]), TE_INT, return, "eval error: incorrect type for conditional!");
-            TE_ERR_FAIL_COND(se->offset == TE_UNKNOWN_OFFSET, return, "eval error: unknown offset!");
-
-            int32_t cond = 0;
-            te_eval_internal(se->opargs[0], stack, (te_value *) &cond);
-
-            if (cond) {
-              it = exprs + se->offset;
-              continue;
-            }
-          }
-            break;
-          case TE_OP_JMP_IF_NOT: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_IF_NOT\n");
-#endif
-            TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(te_expr_result_type(se->opargs[0]), TE_INT, return, "eval error: incorrect type for conditional!");
-            TE_ERR_FAIL_COND(se->offset == TE_UNKNOWN_OFFSET, return, "eval error: unknown offset!");
-
-            int32_t cond = 0;
-            te_eval_internal(se->opargs[0], stack, (te_value *) &cond);
-
-            if (!cond) {
-              it = exprs + se->offset;
-              continue;
-            }
-          }
-            break;
-          case TE_OP_RETURN: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_RETURN\n");
-#endif
-            TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(te_expr_result_type(se->opargs[0]), n->type, return, "eval error: incorrect return type!");
-
-            te_eval_internal(se->opargs[0], stack, ret);
-            return;
-          }
-            break;
-          default: {
-#ifdef TE_DEBUG_PEDANTIC
-            te_printf("eval stmt expr\n");
-#endif
-            te_eval_internal(se, stack, &te_trash);
-          }
-            break;
-        }
-        it++;
-      }
-    }
-      break;
+      const te_value_expr * value_expr = reinterpret_cast<const te_value_expr *>(n);
+      memcpy(ret, &value_expr->value, value_expr->size);
+    } break;
     case TE_OP_STACK_REF: {
 #ifdef TE_DEBUG_PEDANTIC
       te_printf("TE_OP_STACK_REF\n");
@@ -3288,68 +3172,229 @@ inline void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) 
       TE_ERR_FAIL_COND(!p_stack, return, "eval error: stack ptr is null!");
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
 
-      char * arg = p_stack + n->offset;
-      if (n->type & TE_CONSTANT) {
-        ret->ref = reinterpret_cast<te_value *>(arg);
-      } else {
-        ret->ref = *reinterpret_cast<te_value **>(arg);
-      }
-    }
-      break;
+      const te_stack_ref_expr * stack_ref_expr = reinterpret_cast<const te_stack_ref_expr *>(n);
+      te_value * ref = reinterpret_cast<te_value *>(p_stack + stack_ref_expr->offset);
+      memcpy(ret, ref, stack_ref_expr->size);
+    } break;
+    case TE_OP_DEREF: {
+#ifdef TE_DEBUG_PEDANTIC
+      te_printf("TE_OP_DEREF\n");
+#endif
+      TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
+
+      const te_deref_expr * deref_expr = reinterpret_cast<const te_deref_expr *>(n);
+      void * ref;
+      te_eval_internal(deref_expr->arg, p_stack, reinterpret_cast<te_value *>(&ref));
+      memcpy(ret, ref, deref_expr->size);
+    } break;
     case TE_OP_ASSIGN: {
 #ifdef TE_DEBUG_PEDANTIC
       te_printf("TE_OP_ASSIGN\n");
 #endif
-      TE_ERR_FAIL_COND(!TE_IS_REF(te_expr_result_type(n->opargs[0])), return, "eval error: lhs is not a ref!");
-      TE_CHECK_ACTUAL_VS_EXPECTED_TYPE(te_expr_result_type(n->opargs[0]) | TE_CONSTANT, te_expr_result_type(n->opargs[1]) | TE_CONSTANT, return, "eval error: assignment lhs and rhs do not match!");
-      void * lhs;
       TE_ERR_FAIL_COND(!p_stack, return, "eval error: stack ptr is null!");
-      te_eval_internal(n->opargs[0], p_stack, reinterpret_cast<te_value *>(&lhs));
+      TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
+
+      const te_assign_expr * assign_expr = reinterpret_cast<const te_assign_expr *>(n);
+      TE_ERR_FAIL_COND(!TE_IS_REF(assign_expr->lhs->type), return, "eval error: lhs is not a ref!");
+
+      void * lhs;
+      te_eval_internal(assign_expr->lhs, p_stack, reinterpret_cast<te_value *>(&lhs));
       TE_ERR_FAIL_COND(!lhs, return, "eval error: lhs ref is null!");
-      if (n->type & TE_CONSTANT) {
-        te_eval_internal(n->opargs[1], p_stack, reinterpret_cast<te_value *>(lhs));
-      } else {
-        void * ref;
-        te_eval_internal(n->opargs[1], p_stack, reinterpret_cast<te_value *>(&ref));
-        TE_ERR_FAIL_COND(!ref, return, "eval error: rhs ref is null!");
-        memcpy(lhs, ref, n->size);
+
+      TE_CHECK_EXPECTED_TYPE(assign_expr->lhs->type | TE_CONSTANT, assign_expr->rhs->type, return, "eval error: assignment lhs and rhs do not match!");
+      te_eval_internal(assign_expr->rhs, p_stack, reinterpret_cast<te_value *>(lhs));
+    } break;
+    case TE_OP_CALL: {
+#ifdef TE_DEBUG_PEDANTIC
+      te_printf("TE_OP_CALL\n");
+#endif
+      const te_call_expr * call_expr = reinterpret_cast<const te_call_expr *>(n);
+      char * stack = static_cast<char *>(alloca(call_expr->arg_stack_size));
+      {
+        char * stackptr = stack;
+        te_type param_type = TE_ERROR;
+        uint8_t param_count = call_expr->fn.param_count;
+        uint8_t param_size = 0;
+        for (int i = 0; i < param_count; ++i, stackptr += param_size) {
+          param_type = call_expr->fn.param_types[i];
+          param_size = te_size_of(param_type);
+
+          TE_ERR_FAIL_COND(!call_expr->args[i], continue, "eval error: fn arg expr ptr is null!");
+          TE_CHECK_EXPECTED_TYPE(call_expr->args[i]->type, param_type, continue, "eval error: argument and parameter types do not match!");
+          te_eval_internal(call_expr->args[i], p_stack, reinterpret_cast<te_value *>(stackptr));
+        }
       }
-    }
-      break;
+
+      TE_ERR_FAIL_COND(!call_expr->fn.is_valid(), return, "eval error: null function call!");
+      TE_ERR_FAIL_COND(!ret && call_expr->type != TE_NULL, return, "eval error: return ptr is null but function returns a value!");
+
+      call_expr->fn.ptr(call_expr->fn.context, stack, ret);
+    } break;
+    case TE_OP_SUITE: {
+#ifdef TE_DEBUG_PEDANTIC
+      te_printf("TE_OP_SUITE\n");
+#endif
+      const te_suite_expr * suite_expr = reinterpret_cast<const te_suite_expr *>(n);
+      char * stack = static_cast<char *>(alloca(suite_expr->stack_size));
+
+      for (int32_t i = 0; i < suite_expr->stmt_count;) {
+        te_op * stmt = suite_expr->stmts[i];
+        switch (stmt->opcode) {
+          case TE_OP_JMP: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("TE_OP_JMP\n");
+#endif
+            const te_jmp_op * jmp_op = reinterpret_cast<const te_jmp_op *>(stmt);
+            TE_ERR_FAIL_COND(jmp_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
+            i = jmp_op->offset;
+            continue;
+          } break;
+          case TE_OP_JMP_REF: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("TE_OP_JMP_REF\n");
+#endif
+            const te_jmp_ref_op * jmp_ref_op = reinterpret_cast<const te_jmp_ref_op *>(stmt);
+            const uint16_t offset = *jmp_ref_op->offset_ref;
+            TE_ERR_FAIL_COND(offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
+            i = offset;
+            continue;
+          } break;
+          case TE_OP_JMP_IF: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("TE_OP_JMP_IF\n");
+#endif
+            const te_jmp_if_op * jmp_if_op = reinterpret_cast<const te_jmp_if_op *>(stmt);
+            TE_CHECK_EXPECTED_TYPE(jmp_if_op->condition->type, TE_INT, return, "eval error: incorrect type for conditional!");
+            TE_ERR_FAIL_COND(jmp_if_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
+
+            te_int cond = 0;
+            te_eval_internal(jmp_if_op->condition, stack, reinterpret_cast<te_value *>(&cond));
+
+            if (cond) {
+              i = jmp_if_op->offset;
+              continue;
+            }
+          } break;
+          case TE_OP_JMP_IF_NOT: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("TE_OP_JMP_IF_NOT\n");
+#endif
+            const te_jmp_if_not_op * jmp_if_not_op = reinterpret_cast<const te_jmp_if_not_op *>(stmt);
+            TE_CHECK_EXPECTED_TYPE(jmp_if_not_op->condition->type, TE_INT, return, "eval error: incorrect type for conditional!");
+            TE_ERR_FAIL_COND(jmp_if_not_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
+
+            te_int cond = 0;
+            te_eval_internal(jmp_if_not_op->condition, stack, reinterpret_cast<te_value *>(&cond));
+
+            if (!cond) {
+              i = jmp_if_not_op->offset;
+              continue;
+            }
+          } break;
+          case TE_OP_RETURN: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("TE_OP_RETURN\n");
+#endif
+            const te_return_op * return_expr = reinterpret_cast<const te_return_op *>(stmt);
+            TE_CHECK_EXPECTED_TYPE(return_expr->arg->type, n->type, return, "eval error: incorrect return type!");
+
+            te_eval_internal(return_expr->arg, stack, ret);
+            return;
+          } break;
+          case TE_OP_ERROR:
+          case TE_OP_VALUE:
+          case TE_OP_STACK_REF:
+          case TE_OP_DEREF:
+          case TE_OP_ASSIGN:
+          case TE_OP_CALL:
+          case TE_OP_SUITE: {
+#ifdef TE_DEBUG_PEDANTIC
+            te_printf("eval stmt expr\n");
+#endif
+            const te_expr * expr = reinterpret_cast<const te_expr *>(stmt);
+            te_value trash;
+            te_eval_internal(expr, stack, &trash);
+          } break;
+        }
+        i++;
+      }
+    } break;
     case TE_OP_JMP:
+    case TE_OP_JMP_REF:
     case TE_OP_JMP_IF:
     case TE_OP_JMP_IF_NOT:
     case TE_OP_RETURN: {
       TE_ERR_FAIL_COND(true, return, "eval error: op 0x%02x evaluated as a standalone expr!", int(n->opcode));
-    }
-      break;
+    } break;
     default: {
       TE_ERR_FAIL_COND(true, return, "eval error: unknown op 0x%02x!", int(n->opcode));
-    }
-      break;
+    } break;
   }
 
-  TE_ERR_FAIL_COND(TE_IS_REF(te_expr_result_type(n)) && !ret->ref, return, "eval error: null reference!");
+  TE_ERR_FAIL_COND(TE_IS_REF(n->type) && !ret->ref, return, "eval error: null reference!");
 }
 
-inline void optimize(te_expr * n) {
+inline void te_optimize(te_op * op) {
+  // TODO: messes with fragmenting of heap
   /* Only optimize out functions flagged as pure. */
-  if (n->opcode == TE_OP_FUNCTION) {
-    const int arity = n->fn.param_count;
-    char known = 1;
-    for (int i = 0; i < arity; ++i) {
-      optimize(n->fn.args[i]);
-      if (!TE_IS_CONSTANT(n->fn.args[i]->type)) {
-        known = 0;
+  if (!op) {
+    return;
+  }
+
+  switch (op->opcode) {
+    case TE_OP_ERROR:
+    case TE_OP_VALUE:
+    case TE_OP_STACK_REF:
+      break;
+    case TE_OP_DEREF:
+      te_optimize(reinterpret_cast<te_deref_expr *>(op)->arg);
+      break;
+    case TE_OP_ASSIGN:
+      te_optimize(reinterpret_cast<te_assign_expr *>(op)->lhs);
+      te_optimize(reinterpret_cast<te_assign_expr *>(op)->rhs);
+      break;
+    case TE_OP_CALL: {
+      te_call_expr * call_expr = reinterpret_cast<te_call_expr *>(op);
+      bool args_constant = true;
+      for (int i = 0; i < call_expr->fn.param_count; ++i) {
+        te_optimize(call_expr->args[i]);
+        if (!call_expr->args[i] || !TE_IS_CONSTANT(call_expr->args[i]->type)) {
+          args_constant = false;
+        }
       }
-    }
-    if (known && n->type & TE_FLAG_PURE) {
-      te_value reduced; // just to be safe, use a stack var instead of overwriting expr value
-      te_eval_internal(n, nullptr, &reduced);
-      n->value = reduced;
-      n->type = te_expr_result_type(n);
-      te_free_args(n);
-    }
+      if (args_constant && call_expr->fn.pure) {
+        int value_expr_size = sizeof(te_value_expr) - sizeof(te_value) + te_size_of(call_expr->type);
+        // Only try if it fits in the already allocated obj.
+        if (value_expr_size <= te_expr_size(call_expr)) {
+          te_value reduced; // just to be safe, use a stack var instead of overwriting expr value
+          te_eval_internal(call_expr, nullptr, &reduced);
+          te_free_args(call_expr);
+          te_value_expr * value_expr = reinterpret_cast<te_value_expr *>(call_expr);
+          value_expr->opcode = TE_OP_VALUE;
+          // Type is the same.
+          value_expr->size = te_size_of(value_expr->type);
+          value_expr->value = reduced;
+        }
+      }
+    } break;
+    case TE_OP_SUITE: {
+      te_suite_expr * suite_expr = reinterpret_cast<te_suite_expr *>(op);
+      for (int i = 0; i < suite_expr->stmt_count; ++i) {
+        te_optimize(suite_expr->stmts[i]);
+      }
+    } break;
+    case TE_OP_JMP:
+    case TE_OP_JMP_REF:
+      break;
+    case TE_OP_JMP_IF:
+      te_optimize(reinterpret_cast<te_jmp_if_op *>(op)->condition);
+      break;
+    case TE_OP_JMP_IF_NOT:
+      te_optimize(reinterpret_cast<te_jmp_if_not_op *>(op)->condition);
+      break;
+    case TE_OP_RETURN:
+      te_optimize(reinterpret_cast<te_jmp_if_not_op *>(op)->condition);
+      break;
   }
 }
 
@@ -3371,8 +3416,8 @@ inline te_expr * te_compile_internal(const char * expression, const te_variable 
 
   if (s.token != TOK_END) {
     if (root && root->type != TE_ERROR) {
-#ifdef TE_DEBUG_COMPILE
       te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
       te_printf("error: expected end!\n");
 #endif
       te_print_error(s);
@@ -3392,7 +3437,7 @@ inline te_expr * te_compile_internal(const char * expression, const te_variable 
 te_expr * te_compile(const char * expression, const te_variable * variables, int var_count, int * error, bool do_optimize) {
   te_expr * ret = te_compile_internal(expression, variables, var_count, error);
   if (ret && do_optimize) {
-    optimize(ret);
+    te_optimize(ret);
   }
   return ret;
 }
@@ -3489,117 +3534,118 @@ void te_print_value(te_type type, const te_value & v) {
 
 inline const char swizzle_chars[] = "xyzw";
 
-inline void pn(const te_expr * n, int depth) {
-  if (!n) {
+inline void pn(const te_op * op, int depth) {
+  if (!op) {
     te_printf("<nullptr>\n");
     return;
   }
 
   te_printf("%*s", depth, "");
-  switch (n->opcode) {
+  switch (op->opcode) {
+    case TE_OP_ERROR: {
+      te_printf("error\n");
+    } break;
     case TE_OP_VALUE: {
-      te_print_value(n->type, n->value);
+      const te_value_expr * value_expr = reinterpret_cast<const te_value_expr *>(op);
+      te_print_value(value_expr->type, value_expr->value);
       te_printf("\n");
-    }
-      break;
+    } break;
+    case TE_OP_STACK_REF: {
+      const te_stack_ref_expr * stack_ref_expr = reinterpret_cast<const te_stack_ref_expr *>(op);
+      te_print_type_name(stack_ref_expr->type);
+      te_printf("(stack@0x%04x)", int(stack_ref_expr->offset));
+    } break;
     case TE_OP_DEREF: {
+      const te_deref_expr * deref_expr = reinterpret_cast<const te_deref_expr *>(op);
       te_printf("deref\n");
-      pn(n->opargs[0], depth + 1);
-    }
-      break;
-    case TE_OP_FUNCTION: {
-      if (n->fn.param_count == 2 && n->fn.ptr == te_get_add_func(te_expr_result_type(n->fn.args[0]), te_expr_result_type(n->fn.args[1])).ptr) {
+      pn(deref_expr->arg, depth + 1);
+    } break;
+    case TE_OP_ASSIGN: {
+      const te_assign_expr * assign_expr = reinterpret_cast<const te_assign_expr *>(op);
+      te_printf("assign\n");
+      pn(assign_expr->lhs, depth + 1);
+      pn(assign_expr->rhs, depth + 1);
+    } break;
+    case TE_OP_CALL: {
+      const te_call_expr * call_expr = reinterpret_cast<const te_call_expr *>(op);
+      if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_add_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
         te_printf("add\n");
-      } else if (n->fn.param_count == 2 && n->fn.ptr == te_get_sub_func(te_expr_result_type(n->fn.args[0]), te_expr_result_type(n->fn.args[1])).ptr) {
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_sub_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
         te_printf("sub\n");
-      } else if (n->fn.param_count == 2 && n->fn.ptr == te_get_mul_func(te_expr_result_type(n->fn.args[0]), te_expr_result_type(n->fn.args[1])).ptr) {
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_mul_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
         te_printf("mul\n");
-      } else if (n->fn.param_count == 2 && n->fn.ptr == te_get_div_func(te_expr_result_type(n->fn.args[0]), te_expr_result_type(n->fn.args[1])).ptr) {
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_div_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
         te_printf("div\n");
-      } else if (n->fn.param_count == 2 && n->fn.ptr == te_get_mod_func(te_expr_result_type(n->fn.args[0]), te_expr_result_type(n->fn.args[1])).ptr) {
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_mod_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
         te_printf("mod\n");
-      } else if (n->fn.param_count == 1 && n->fn.ptr == te_get_negate_func(te_expr_result_type(n->fn.args[0])).ptr) {
+      } else if (call_expr->fn.param_count == 1 && call_expr->fn.ptr == te_get_negate_func(call_expr->args[0]->type).ptr) {
         te_printf("negate\n");
-      } else /*if (n->fn.param_count == 1 && n->fn.ptr == te_get_dereference_func(te_expr_result_type(n->fn.args[0])).ptr) {
-                te_printf("dereference\n");
-            } else*/ if (n->fn.param_count == 2 && n->fn.ptr == te_get_index_func(te_expr_result_type(n->fn.args[0])).ptr) {
-        te_printf("index.%ld\n", long(n->fn.args[1]->value.int_));
-      } else if (n->fn.param_count == 3 && n->fn.ptr == te_get_swizzle2_func(te_expr_result_type(n->fn.args[0])).ptr) {
-        te_printf("swizzle.%c%c\n", swizzle_chars[n->fn.args[1]->value.int_], swizzle_chars[(n->fn.args[2])->value.int_]);
-      } else if (n->fn.param_count == 4 && n->fn.ptr == te_get_swizzle3_func(te_expr_result_type(n->fn.args[0])).ptr) {
-        te_printf("swizzle.%c%c%c\n", swizzle_chars[n->fn.args[1]->value.int_], swizzle_chars[(n->fn.args[2])->value.int_], swizzle_chars[(n->fn.args[3])->value.int_]);
-      } else if (n->fn.param_count == 5 && n->fn.ptr == te_get_swizzle4_func(te_expr_result_type(n->fn.args[0])).ptr) {
-        te_printf("swizzle.%c%c%c%c\n", swizzle_chars[n->fn.args[1]->value.int_], swizzle_chars[(n->fn.args[2])->value.int_], swizzle_chars[(n->fn.args[3])->value.int_], swizzle_chars[(n->fn.args[4])->value.int_]);
-      } else if (n->fn.ptr == (te_function) &pre_increment) {
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_index_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT) {
+        te_printf("index.%ld\n", long(reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_));
+      } else if (call_expr->fn.param_count == 3 && call_expr->fn.ptr == te_get_swizzle2_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT) {
+        te_printf("swizzle.%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_]);
+      } else if (call_expr->fn.param_count == 4 && call_expr->fn.ptr == te_get_swizzle3_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TE_INT) {
+        te_printf("swizzle.%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_]);
+      } else if (call_expr->fn.param_count == 5 && call_expr->fn.ptr == te_get_swizzle4_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TE_INT && call_expr->args[4]->opcode == TE_OP_VALUE && call_expr->args[4]->type == TE_INT) {
+        te_printf("swizzle.%c%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[4])->value.int_]);
+      } else if (call_expr->fn.ptr == (te_function) &pre_increment) {
         te_printf("pre-increment\n");
-      } else if (n->fn.ptr == (te_function) &post_increment) {
+      } else if (call_expr->fn.ptr == (te_function) &post_increment) {
         te_printf("post-increment\n");
-      } else if (n->fn.ptr == (te_function) &pre_decrement) {
+      } else if (call_expr->fn.ptr == (te_function) &pre_decrement) {
         te_printf("pre-decrement\n");
-      } else if (n->fn.ptr == (te_function) &post_decrement) {
+      } else if (call_expr->fn.ptr == (te_function) &post_decrement) {
         te_printf("post-decrement\n");
-      } else if (n->fn.ptr == (te_function) &bool_not) {
+      } else if (call_expr->fn.ptr == (te_function) &bool_not) {
         te_printf("not\n");
       } else {
         bool found = false;
         for (int i = 0; i < te_builtins_count; ++i) {
-          if (TE_IS_FUNCTION(te_builtins[i].type) && n->fn.ptr == te_builtins[i].fn.ptr) {
+          if (TE_IS_FUNCTION(te_builtins[i].type) && call_expr->fn.ptr == te_builtins[i].fn.ptr) {
             found = true;
             te_printf(te_builtins[i].name);
           }
         }
 
         if (!found) {
-          te_print_value(n->type, n->value);
+          te_print_value(TE_FUNCTION, call_expr->fn);
         }
         te_printf("\n");
       }
-      for (int i = 0; i < n->fn.param_count; i++) {
-        pn(n->fn.args[i], depth + 1);
+      for (int i = 0; i < call_expr->fn.param_count; i++) {
+        pn(call_expr->args[i], depth + 1);
       }
-    }
-      break;
+    } break;
     case TE_OP_SUITE: {
+      const te_suite_expr * suite_expr = reinterpret_cast<const te_suite_expr *>(op);
       te_printf("suite\n");
-      for (te_expr * const * it = n->opargs; *it; ++it) {
-        pn(*it, depth + 1);
+      for (int i = 0; i < suite_expr->stmt_count; ++i) {
+        pn(suite_expr->stmts[i], depth + 1);
       }
-    }
-      break;
-    case TE_OP_STACK_REF: {
-      te_print_type_name(te_type(n->type & ~TE_CONSTANT));
-      te_printf("(stack@0x%04x)", int(n->offset));
-    }
-      break;
-    case TE_OP_ASSIGN: {
-      te_printf("assign\n");
-      pn(n->opargs[0], depth + 1);
-      pn(n->opargs[1], depth + 1);
-    }
-      break;
+    } break;
     case TE_OP_JMP: {
-      te_printf("jmp to %d\n", int(n->offset));
-    }
-      break;
+      const te_jmp_op * jmp_op = reinterpret_cast<const te_jmp_op *>(op);
+      te_printf("jmp to %d\n", int(jmp_op->offset));
+    } break;
     case TE_OP_JMP_REF: {
-      te_printf("jmp to ref %d\n", int(* n->value.int_ref));
-    }
-      break;
+      const te_jmp_ref_op * jmp_ref_op = reinterpret_cast<const te_jmp_ref_op *>(op);
+      te_printf("jmp to ref %d\n", int(* jmp_ref_op->offset_ref));
+    } break;
     case TE_OP_JMP_IF: {
-      te_printf("jmp to %d if\n", int(n->offset));
-      pn(n->opargs[0], depth + 1);
-    }
-      break;
+      const te_jmp_if_op * jmp_if_op = reinterpret_cast<const te_jmp_if_op *>(op);
+      te_printf("jmp to %d if\n", int(jmp_if_op->offset));
+      pn(jmp_if_op->condition, depth + 1);
+    } break;
     case TE_OP_JMP_IF_NOT: {
-      te_printf("jmp to %d if not\n", int(n->offset));
-      pn(n->opargs[0], depth + 1);
-    }
-      break;
+      const te_jmp_if_not_op * jmp_if_not_op = reinterpret_cast<const te_jmp_if_not_op *>(op);
+      te_printf("jmp to %d if not\n", int(jmp_if_not_op->offset));
+      pn(jmp_if_not_op->condition, depth + 1);
+    } break;
     case TE_OP_RETURN: {
+      const te_return_op * return_op = reinterpret_cast<const te_return_op *>(op);
       te_printf("return\n");
-      pn(n->opargs[0], depth + 1);
-    }
-      break;
+      pn(return_op->arg, depth + 1);
+    } break;
   }
 }
 
