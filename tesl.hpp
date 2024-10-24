@@ -27,6 +27,7 @@
 
 #include <cmath>
 #include <climits>
+#include <cstddef>
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
@@ -85,9 +86,11 @@ enum te_type : uint8_t {
 };
 
 enum te_opcode : uint8_t {
+  TE_OP_NONE,
   TE_OP_ERROR,
   TE_OP_VALUE,
   TE_OP_STACK_REF,
+  TE_OP_STACK_REF_REF,
   TE_OP_DEREF,
   TE_OP_ASSIGN,
   TE_OP_CALL,
@@ -101,9 +104,8 @@ enum te_opcode : uint8_t {
 
 static_assert(TE_TYPE_COUNT <= TE_TYPE_COUNT_MAX);
 
-#define TE_IS_FUNCTION(TYPE) (TYPE == TE_FUNCTION)
-#define TE_IS_CONSTANT(TYPE) (((TYPE) & (TE_CONSTANT)) && !TE_IS_FUNCTION(TYPE))
-#define TE_IS_REF(TYPE) (!((TYPE) & (TE_CONSTANT)) && !TE_IS_FUNCTION(TYPE))
+#define TE_IS_CONSTANT(TYPE) (((TYPE) & (TE_CONSTANT)) && TYPE != TE_FUNCTION)
+#define TE_IS_REF(TYPE) (!((TYPE) & (TE_CONSTANT)) && TYPE != TE_FUNCTION)
 
 static_assert(sizeof(float) == 4);
 using te_float = float;
@@ -151,19 +153,21 @@ union te_mat4 {
   te_vec4 arr[4]{};
 };
 
-struct te_string {
-  const char * ptr = "<uninitialized-str>";
-  int32_t length = strlen(ptr);
+struct te_strview {
+  const char * ptr = "";
+  const char * end = ptr;
 
-  te_string(const char * str, const int32_t p_length) {
-    ptr = str;
-    length = p_length;
+  bool operator==(const te_strview &other) const {
+    return len() == other.len() && memcmp(ptr, other.ptr, len()) == 0;
   }
 
-  explicit te_string(const char * str) {
-    ptr = str;
-    length = strlen(str);
+  int32_t len() const {
+    return end - ptr;
   }
+
+  te_strview(const char * str, const int32_t p_length) : ptr(str), end(str + p_length) {}
+  te_strview(const char * str) : ptr(str), end(str + strlen(str)) {}
+  te_strview() {}
 };
 
 static_assert(sizeof(void *) == 4, "made for 32bit :/ srry didnt have the energy to um yea");
@@ -204,7 +208,10 @@ struct te_value {
     te_mat2 mat2;
     te_mat3 mat3;
     te_mat4 mat4;
-    te_string str;
+    struct {
+      const char * str;
+      char str_storage[64 - sizeof(const char *)];
+    };
 
     te_float elements[16];
 
@@ -218,12 +225,11 @@ struct te_value {
     te_mat2 * mat2_ref;
     te_mat3 * mat3_ref;
     te_mat4 * mat4_ref;
-    te_string * str_ref;
+    const char ** str_ref;
   };
 
   te_value() {
-    static_assert(sizeof(te_value) == 64);
-    memset(this, 0, 64);
+    memset(this, 0, sizeof(te_value));
   };
 
   te_value(te_fn_obj p_fn) : fn(p_fn) {};
@@ -239,19 +245,28 @@ struct te_value {
   te_value(void * p_ptr) : ptr(p_ptr) {};
   te_value(te_value * p_ref) : ref(p_ref) {};
 };
+static_assert(sizeof(te_value) == 64);
+
+struct te_typed_value : public te_value {
+  te_type type = TE_ERROR;
+};
 
 struct te_variable {
-  const char * name = "<unnamed>";
+  te_strview name = "<unnamed>";
   te_type type = TE_ERROR;
   union {
     te_value value;
     te_fn_obj fn;
   };
+
+  te_variable(te_strview p_name, te_typed_value v) : name(p_name), type(v.type), value(v) {}
+  te_variable(te_strview p_name, te_type t, te_value v) : name(p_name), type(t), value(v) {}
+  te_variable(te_strview p_name, te_fn_obj p_func) : name(p_name), type(TE_FUNCTION), fn(p_func) {}
 };
 
 // DO NOT STATICALLY ALLOCATE THESE
 struct te_op {
-  te_opcode opcode = TE_OP_ERROR;
+  te_opcode opcode = TE_OP_NONE;
 };
 static_assert(sizeof(te_op) == 1);
 
@@ -259,6 +274,11 @@ struct te_expr : te_op {
   te_type type = TE_ERROR;
 };
 static_assert(sizeof(te_expr) == 2);
+
+struct te_error_expr : te_expr {
+  te_expr * source = nullptr;
+};
+static_assert(sizeof(te_error_expr) == 8);
 
 struct te_value_expr : public te_expr {
   uint16_t size = 0;
@@ -268,9 +288,8 @@ static_assert(sizeof(te_value_expr) == 68);
 
 struct te_stack_ref_expr : te_expr {
   uint16_t offset = 0;
-  uint16_t size = 0;
 };
-static_assert(sizeof(te_stack_ref_expr) == 6);
+static_assert(sizeof(te_stack_ref_expr) == 4);
 
 struct te_deref_expr : te_expr {
   uint16_t size = 0;
@@ -322,28 +341,58 @@ struct te_return_op : public te_op {
 };
 static_assert(sizeof(te_return_op) == 8);
 
-/* Parses the input expression, evaluates it, and frees it. */
-/* result_type is TE_ERROR on error. */
-te_value te_interp(const char * expression, te_type * result_type, int * error = nullptr);
+struct te_parser_state;
 
-/* Parses the input expression and binds variables. */
-/* Returns nullptr on error. */
-te_expr * te_compile(const char * expression, const te_variable * variables, int var_count, int * error = nullptr, bool optimize = true);
+struct te_error_record {
+private:
+  te_parser_state * state = nullptr;
+  te_error_record * prev = nullptr;
 
-/* Evaluates the expression. */
-te_value te_eval(const te_expr * n);
+public:
+  const char * line_start = nullptr;
+  const char * start = nullptr;
+  const char * point = nullptr;
+  const char * end = nullptr;
+  te_int line_num = 0;
 
-/* Prints debugging information on the syntax tree. */
-void te_print_expr(const te_expr * n);
-
-void te_print_value(te_type t, const te_value & v);
-void te_print_type_name(te_type type);
+  explicit te_error_record(te_parser_state & s);
+  te_error_record() = default;
+  ~te_error_record();
+  inline int get_line() { return line_num; }
+  inline int get_column() { return point - line_start; }
+  inline void set_start(const char * p_start) { start = p_start; }
+  inline void set_point(const char * p_point) { point = p_point; }
+  inline void set_end(const char * p_end) { end = p_end; }
+};
 
 /* Frees the expression. */
-/* This is safe to call on NULL pointers. */
-void te_free(te_op * n);
+/* This is safe to call on null pointers. */
+void te_free(te_op * op);
+
+/* Evaluates the expression. */
+te_typed_value te_eval(const te_expr * e);
+
+struct te_program {
+  te_expr *root_expr = nullptr;
+  te_error_record error;
+
+  bool is_valid() const { return root_expr != nullptr; }
+  te_typed_value eval() const { return te_eval(root_expr); }
+  void optimize() const;
+
+  te_program(te_expr * expr, const te_error_record & er);
+  te_program & operator=(te_program &&);
+  te_program(te_program && other);
+  te_program & operator=(const te_program &) = delete;
+  te_program(const te_program &) = delete;
+  te_program() = default;
+  ~te_program();
+};
 
 namespace te {
+  template<typename T>
+  T && move(T & v) { return static_cast<T &&>(v); }
+
   template<typename T1, typename T2> constexpr bool is_same = false;
   template<typename T> constexpr bool is_same<T, T> = true;
 
@@ -358,7 +407,7 @@ namespace te {
   template<> inline constexpr te_type type_value_of<te_mat2> = TE_MAT2;
   template<> inline constexpr te_type type_value_of<te_mat3> = TE_MAT3;
   template<> inline constexpr te_type type_value_of<te_mat4> = TE_MAT4;
-  template<> inline constexpr te_type type_value_of<te_string> = TE_STR;
+  template<> inline constexpr te_type type_value_of<const char *> = TE_STR;
 
   template<te_type T>
   struct type_of_impl { using type = typename type_of_impl<te_type(T | TE_CONSTANT)>::type *; };
@@ -381,7 +430,7 @@ namespace te {
   template<>
   struct type_of_impl<TE_MAT4> { using type = te_mat4; };
   template<>
-  struct type_of_impl<TE_STR> { using type = te_string; };
+  struct type_of_impl<TE_STR> { using type = const char *; };
 
   template<>
   struct type_of_impl<TE_FUNCTION> { using type = te_fn_obj; };
@@ -406,20 +455,26 @@ namespace te {
   inline type_of<te_type(Type | TE_CONSTANT)> value_deref(const te_value & val);
 
   template<typename T>
-  inline void value_set(te_value & tev, T v);
+  inline void value_set(te_value & tev, const T & v);
 
 #define MAKE_VALUE_IMPL(tetype, member_name, ref_tetype, ref_member_name)\
-    template<> inline type_of<tetype> value_get<type_of<tetype>>(const te_value &val) { return val.member_name; }\
-    template<> inline type_of<tetype> value_deref<tetype>(const te_value &val) { return val.member_name; }\
-    template<> inline void value_set<type_of<tetype>>(te_value &tev, type_of<tetype> v) {\
-        tev.member_name = v;\
-    }\
-    template<> inline type_of<ref_tetype> value_get<type_of<ref_tetype>>(const te_value &val) { return val.ref_member_name; }\
-    template<> inline type_of<tetype> value_deref<ref_tetype>(const te_value &val) { return *val.ref_member_name; }\
-    template<> inline void value_set<type_of<ref_tetype>>(te_value &tev, type_of<ref_tetype> v) {\
-        tev.ref_member_name = v;\
-    }
+  MAKE_VALUE_CONST_IMPL(tetype, member_name)\
+  MAKE_VALUE_REF_IMPL(ref_tetype, ref_member_name)
+#define MAKE_VALUE_CONST_IMPL(tetype, member_name)\
+  template<> inline type_of<tetype> value_get<type_of<tetype>>(const te_value &val) { return val.member_name; }\
+  template<> inline type_of<tetype> value_deref<tetype>(const te_value &val) { return val.member_name; }\
+  template<> inline void value_set<type_of<tetype>>(te_value &tev, const type_of<tetype> & v) {\
+      tev.member_name = v;\
+  }
+#define MAKE_VALUE_REF_IMPL(ref_tetype, ref_member_name)\
+  template<> inline type_of<ref_tetype> value_get<type_of<ref_tetype>>(const te_value &val) { return val.ref_member_name; }\
+  template<> inline type_of<te_type(ref_tetype | TE_CONSTANT)> value_deref<ref_tetype>(const te_value &val) { return *val.ref_member_name; }\
+  template<> inline void value_set<type_of<ref_tetype>>(te_value &tev, const type_of<ref_tetype> & v) {\
+      tev.ref_member_name = v;\
+  }
 
+  //MAKE_VALUE_CONST_IMPL(TE_INT, int_)
+  //MAKE_VALUE_REF_IMPL(TE_INT_REF, int_ref)
   MAKE_VALUE_IMPL(TE_INT, int_, TE_INT_REF, int_ref)
   MAKE_VALUE_IMPL(TE_FLOAT, float_, TE_FLOAT_REF, float_ref)
   MAKE_VALUE_IMPL(TE_VEC2, vec2, TE_VEC2_REF, vec2_ref)
@@ -433,10 +488,10 @@ namespace te {
 #undef MAKE_VALUE_IMPL
 
   template<typename T>
-  te_value make_value(T v) {
+  te_typed_value make_value(T v) {
     te_value ret;
-    value_set(ret, v);
-    return ret;
+    value_set<T>(ret, v);
+    return {ret, te::type_value_of<T>};
   }
 
   namespace detail {
@@ -540,7 +595,9 @@ inline constexpr int8_t te_size_of(te_type type) {
     CASE_(TE_MAT2)
     CASE_(TE_MAT3)
     CASE_(TE_MAT4)
-    CASE_(TE_STR)
+    case TE_STR:
+      te_printf("internal error: cannot get size of dynamic type str");
+      return 0;
     CASE_(TE_INT_REF)
     CASE_(TE_FLOAT_REF)
     CASE_(TE_VEC2_REF)
@@ -559,5 +616,24 @@ inline constexpr int8_t te_size_of(te_type type) {
   }
 #undef CASE_
 }
+
+/* Parses the input expression, evaluates it, and frees it. */
+/* Result type is TE_ERROR on error. */
+te_typed_value te_interp(const char * expression, te_error_record * error = nullptr);
+
+/* Parses the input as a program and binds variables. */
+te_program te_compile_program(const char * expression, const te_variable * variables, int var_count);
+
+/* Parses the input as a suite and binds variables. */
+te_program te_compile_suite(const char * expression, const te_variable * variables, int var_count, te_type result_type);
+
+/* Parses the input as an expression and binds variables. */
+te_program te_compile_expr(const char * expression, const te_variable * variables, int var_count);
+
+/* Prints debugging information on the syntax tree. */
+void te_print_expr(const te_expr * n);
+
+void te_print_value(const te_typed_value & v);
+void te_print_type_name(te_type type);
 
 #endif /*TESL_HPP*/
