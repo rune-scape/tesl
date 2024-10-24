@@ -409,11 +409,104 @@ void te_print_token(te_token tok) {
 }
 
 struct te_parser_state {
-  struct var_ref {
-    const char * start = nullptr;
-    uint8_t len = 0;
+  struct local_var_t {
+    const char * name_ptr = nullptr;
+    uint8_t name_length = 0;
     te_type type = TE_ERROR;
     uint16_t offset = 0;
+
+    te_strview get_name() const { return {name_ptr, name_length}; }
+
+    local_var_t(te_parser_state & s, te_strview name, te_type p_type, uint16_t p_offset);
+    local_var_t() = default;
+  };
+  struct var_ref {
+    // TODO: add local constants
+    enum kind_t {
+      INVALID,
+      LOCAL_VAR,
+      GLOBAL_CONST,
+      GLOBAL_VAR,
+    };
+
+    kind_t kind;
+    union {
+      void * _ptr;
+      local_var_t * local_var = nullptr;
+      te_variable * global_var;
+      const te_variable * global_const;
+    };
+
+    bool is_valid() {
+      return kind != INVALID && _ptr;
+    }
+
+    bool is_function() {
+      return get_type() == TE_FUNCTION;
+    }
+    
+    te_strview get_name() const {
+      switch (kind) {
+        case INVALID:
+          return {};
+        case LOCAL_VAR:
+          return local_var->get_name();
+        case GLOBAL_CONST:
+          return global_const->get_name();
+        case GLOBAL_VAR:
+          return global_var->get_name();
+      }
+
+      return {};
+    }
+    te_type get_type() const {
+      switch (kind) {
+        case INVALID:
+          return TE_ERROR;
+        case LOCAL_VAR:
+          return local_var->type;
+        case GLOBAL_CONST:
+          return global_const->type;
+        case GLOBAL_VAR:
+          return global_var->type;
+      }
+
+      return TE_ERROR;
+    }
+    te_value get_value() const {
+      switch (kind) {
+        case INVALID:
+          return {};
+        case LOCAL_VAR:
+          return {};
+        case GLOBAL_CONST:
+          return global_const->value;
+        case GLOBAL_VAR:
+          return global_var->value;
+      }
+
+      return {};
+    }
+    te_fn_obj get_function() const {
+      switch (kind) {
+        case INVALID:
+          return {};
+        case LOCAL_VAR:
+          return {};
+        case GLOBAL_CONST:
+          return global_const->fn;
+        case GLOBAL_VAR:
+          return global_var->fn;
+      }
+
+      return {};
+    }
+    te_expr * new_ref_expr(te_parser_state & s);
+
+    var_ref(const te_variable & p_global_const) : kind(GLOBAL_CONST), global_const(&p_global_const) {}
+    var_ref(te_variable & p_global_var) : kind(GLOBAL_VAR), global_var(&p_global_var) {}
+    var_ref(local_var_t & p_local_var) : kind(LOCAL_VAR), local_var(&p_local_var) {}
+    var_ref() : kind(INVALID) {}
   };
 
   te_parser_state * parent = nullptr;
@@ -434,12 +527,12 @@ struct te_parser_state {
   te_type return_type = TE_NULL;
   int stmt_count = 0;
 
-  const te_variable * lookup = nullptr;
-  int32_t lookup_len = 0;
+  te_variable * global_vars = nullptr;
+  int32_t global_var_count = 0;
   int32_t stack_size = 0;
   int32_t stack_offset = 0;
   int32_t var_count = 0;
-  var_ref vars[TE_MAX_VAR_COUNT];
+  local_var_t vars[TE_MAX_VAR_COUNT];
   te_op * stmts[TE_MAX_STMT_COUNT];
 };
 
@@ -534,33 +627,34 @@ void te_print_error(te_parser_state & s) {
 #endif
 }
 
-te_parser_state::var_ref *te_stack_allocate_var(te_parser_state & s, te_strview str, te_type type) {
-  int32_t len = str.len();
+te_parser_state::local_var_t::local_var_t(te_parser_state & s, te_strview name, te_type p_type, uint16_t p_offset) {
+  type = p_type;
+  offset = p_offset;
+
+  int32_t len = name.len();
   if (len > 0xff) {
-    te_error_record er(s);
 #ifdef TE_DEBUG_COMPILE
-    te_printf("error: var name '%.*s...' too long! (max length: %d)", 24, str.ptr, 0xff);
+    te_printf("error: var name '%.*s...' too long! (max length: %d)", 24, name.ptr, 0xff);
 #endif
     te_print_error(s);
-    len = 0xff;
+    return;
   } else if (len < 0) {
-    te_error_record er(s);
 #ifdef TE_DEBUG_COMPILE
     te_printf("internal error: invalid var name length: %d", len);
 #endif
     te_print_error(s);
-    return nullptr;
+    return;
   }
 
+  name_ptr = name.ptr;
+  name_length = len;
+}
+
+te_parser_state::local_var_t *te_stack_allocate_var(te_parser_state & s, te_strview str, te_type type) {
   int8_t var_size = te_size_of(type);
   uint16_t offset = s.stack_offset;
-  te_parser_state::var_ref &var = s.vars[s.var_count];
-  var = {
-    str.ptr,
-    static_cast<uint8_t>(len),
-    type,
-    offset,
-  };
+  te_parser_state::local_var_t &var = s.vars[s.var_count];
+  var = {s, str, type, offset};
   s.stack_offset += var_size;
   s.stack_size = MAX(s.stack_size, s.stack_offset);
   s.var_count++;
@@ -645,6 +739,18 @@ static te_expr * new_value_expr(te_type type, const te_value & value) {
   return ret;
 }
 
+static te_expr * new_value_ref_expr(te_type type, te_value & value) {
+  te_type ref_type = te_type(type & ~TE_CONSTANT);
+  const int value_size = te_size_of(ref_type);
+  const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
+  te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
+  ret->opcode = TE_OP_VALUE;
+  ret->type = ref_type;
+  ret->size = value_size;
+  ret->value.ref = &value;
+  return ret;
+}
+
 static te_expr * new_int_literal_expr(const te_int & value) {
   const te_type type = TE_INT;
   const int value_size = te_size_of(type);
@@ -692,10 +798,6 @@ static te_expr * new_stack_ref_expr(te_type source_type, uint16_t offset) {
   ret->type = result_type;
   ret->offset = offset;
   return ret;
-}
-
-static te_expr * new_stack_ref_expr(te_parser_state::var_ref & var) {
-  return new_stack_ref_expr(var.type, var.offset);
 }
 
 static te_expr * new_deref_expr(te_type target_type, te_expr * e) {
@@ -871,6 +973,21 @@ static te_expr * new_suite_expr(te_type return_type, uint16_t stack_size, te_op 
   ret->stmt_count = stmt_count;
   memcpy(ret->stmts, stmts, stmt_count * sizeof(te_expr *));
   return ret;
+}
+
+te_expr * te_parser_state::var_ref::new_ref_expr(te_parser_state & s) {
+  switch (kind) {
+    case INVALID:
+      return nullptr;
+    case LOCAL_VAR:
+      return new_stack_ref_expr(local_var->type, local_var->offset);
+    case GLOBAL_CONST:
+      return new_value_expr(global_const->type, global_const->value);
+    case GLOBAL_VAR:
+      return new_value_ref_expr(global_var->type, global_var->value);
+  }
+
+  return nullptr;
 }
 
 void te_free_args(te_op * n) {
@@ -1479,52 +1596,69 @@ static int te_builtins_count = sizeof(te_builtins) / sizeof(te_variable);
 //     return 0;
 // }
 
-static const te_variable * find_global_var1(const te_variable * lookup, int lookup_len, te_strview name, const te_type * arg_types = nullptr, int arg_count = 0) {
-  int iters;
-  const te_variable * var;
-  if (lookup) {
-    for (var = lookup, iters = lookup_len; iters; ++var, --iters) {
-      if (var->name == name) {
-        if (arg_types) {
-          if (var->type == TE_FUNCTION && arg_count == var->fn.param_count) {
-            for (int i = 0; i < arg_count; ++i) {
-              if ((arg_types[i] | (var->fn.param_types[i] & TE_CONSTANT)) != var->fn.param_types[i]) {
-                goto continue_outer;
-              }
-            }
-
-            return var;
-          }
-        } else {
-          return var;
+template<typename T>
+static bool test_arg_types_match(T & var, const te_type * arg_types, int arg_count) {
+  if (arg_types) {
+    if (var.type == TE_FUNCTION && arg_count == var.fn.param_count) {
+      for (int i = 0; i < arg_count; ++i) {
+        if ((arg_types[i] | (var.fn.param_types[i] & TE_CONSTANT)) != var.fn.param_types[i]) {
+          return false;
         }
       }
-    continue_outer:;
+
+      return true;
     }
+  
+    return false;
   }
 
-  return nullptr;
+  return true;
 }
 
-static const te_variable * find_global_var(te_parser_state & s, te_strview name, te_type * arg_types = nullptr, int arg_count = 0) {
+template<>
+bool test_arg_types_match<te_parser_state::local_var_t>(te_parser_state::local_var_t & var, const te_type * arg_types, int arg_count) {
+  return true;
+}
+
+template<typename T>
+static te_parser_state::var_ref find_var_search(T * vars, int var_count, te_strview name, const te_type * arg_types = nullptr, int arg_count = 0) {
+  for (int i = var_count-1; i >= 0; --i) {
+    T & var = vars[i];
+    if (var.get_name() == name) {
+      if (test_arg_types_match(var, arg_types, arg_count)) {
+        return var;
+      }
+    }
+  continue_outer:;
+  }
+
+  return {};
+}
+
+static te_parser_state::var_ref find_var(te_parser_state & s, te_strview name, te_type * arg_types = nullptr, int arg_count = 0) {
   for (int i = 0; i < arg_count; ++i) {
     if (arg_types[i] == TE_ERROR) {
-      return nullptr;
+      return {};
     }
   }
 
-  const te_variable * result = find_global_var1(s.lookup, s.lookup_len, name, arg_types, arg_count);
-  if (result) {
+  te_parser_state::var_ref result = find_var_search(s.vars, s.var_count, name, arg_types, arg_count);
+  if (result.is_valid()) {
+    return result;
+  }
+
+  result = find_var_search(s.global_vars, s.global_var_count, name, arg_types, arg_count);
+  if (result.is_valid()) {
     return result;
   }
 
   if (s.parent) {
-    return find_global_var(*s.parent, name, arg_types, arg_count);
+    return find_var(*s.parent, name, arg_types, arg_count);
   }
 
-  const te_variable * ret = find_global_var1(te_builtins, te_builtins_count, name, arg_types, arg_count);
+  result = find_var_search(te_builtins, te_builtins_count, name, arg_types, arg_count);
 
-  if (!ret) {
+  if (!result.is_valid()) {
     if (arg_types) {
 #ifdef TE_DEBUG_COMPILE
       te_printf("error: could not find function matching '%.*s", name.len(), name.ptr);
@@ -1546,7 +1680,7 @@ static const te_variable * find_global_var(te_parser_state & s, te_strview name,
     }
   }
 
-  return ret;
+  return result;
 }
 
 static void next_token(te_parser_state & s) {
@@ -2370,8 +2504,9 @@ static te_expr * base(te_parser_state & s) {
               s.parse_error = true;
             }
           } else {
-            if (const te_variable * var = find_global_var(s, id, arg_types, arg_count)) {
-              fn = var->fn;
+            te_parser_state::var_ref var = find_var(s, id, arg_types, arg_count);
+            if (var.is_valid() && var.is_function()) {
+              fn = var.get_function();
             } else {
               valid = false;
               s.parse_error = true;
@@ -2403,9 +2538,9 @@ static te_expr * base(te_parser_state & s) {
           ret = nullptr;
         }
       } else {
-        if (const te_variable * var = find_global_var(s, id)) {
-          // TODO: add a constant falg to variable and add ability to ref non-constant vars
-          ret = new_value_expr(var->type, var->value);
+        te_parser_state::var_ref var = find_var(s, id);
+        if (var.is_valid()) {
+          ret = var.new_ref_expr(s);
 #ifdef TE_DEBUG_PEDANTIC
           te_printf("base is global var, value: ");
           te_print_expr(ret);
@@ -3167,14 +3302,14 @@ static void parse_var_stmt(te_parser_state & s, bool allow_assign) {
     te_print_error(s);
     return;
   }
-  te_parser_state::var_ref * var = te_stack_allocate_var(s, s.token.name, decl_type);
+  te_parser_state::local_var_t * var = te_stack_allocate_var(s, s.token.name, decl_type);
   next_token(s);
 
   if (allow_assign && s.token == te_token::EQUAL) {
     next_token(s);
 
     te_expr *initializer = expr(s);
-    push_stmt(s, new_assign_expr(var ? new_stack_ref_expr(*var) : nullptr, initializer));
+    push_stmt(s, new_assign_expr(var ? new_stack_ref_expr(var->type, var->offset) : nullptr, initializer));
   }
 }
 
@@ -3354,6 +3489,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
 
       TE_CHECK_EXPECTED_TYPE(assign_expr->lhs->type | TE_CONSTANT, assign_expr->rhs->type, return, "eval error: assignment lhs and rhs do not match!");
       te_eval_internal(assign_expr->rhs, p_stack, reinterpret_cast<te_value *>(lhs));
+      ret->ptr = lhs;
     } break;
     case TE_OP_CALL: {
 #ifdef TE_DEBUG_PEDANTIC
@@ -3483,7 +3619,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
       TE_ERR_FAIL_COND(true, return, "eval error: unknown op 0x%02x!", int(n->opcode));
     } break;
   }
-
+  if (TE_IS_REF(n->type) && !ret->ref)
   TE_ERR_FAIL_COND(TE_IS_REF(n->type) && !ret->ref, return, "eval error: null reference!");
 }
 
@@ -3569,14 +3705,14 @@ void te_program::optimize() const {
 }
 
 template<auto ParseFn>
-static te_program te_compile_internal(const char * expression, const te_variable * variables, int var_count, te_type result_type = TE_NULL) {
+static te_program te_compile_internal(const char * expression, te_variable * variables, int var_count, te_type result_type = TE_NULL) {
   te_parser_state s;
   s.return_type = result_type;
   s.program = s.line_start = expression;
   s.token = {te_token::NUL, te_strview{expression, 0}};
   s.prev_token = s.token;
-  s.lookup = variables;
-  s.lookup_len = var_count;
+  s.global_vars = variables;
+  s.global_var_count = var_count;
 
   next_token(s);
   te_expr * root = ParseFn(s);
@@ -3596,15 +3732,15 @@ static te_program te_compile_internal(const char * expression, const te_variable
   return {root, s.prev_error};
 }
 
-te_program te_compile_program(const char * expression, const te_variable * variables, int var_count) {
+te_program te_compile_program(const char * expression, te_variable * variables, int var_count) {
   return te_compile_internal<parse_program>(expression, variables, var_count);
 }
 
-te_program te_compile_suite(const char * expression, const te_variable * variables, int var_count, te_type result_type) {
+te_program te_compile_suite(const char * expression, te_variable * variables, int var_count, te_type result_type) {
   return te_compile_internal<parse_standalone_suite>(expression, variables, var_count, result_type);
 }
 
-te_program te_compile_expr(const char * expression, const te_variable * variables, int var_count) {
+te_program te_compile_expr(const char * expression, te_variable * variables, int var_count) {
   return te_compile_internal<expr>(expression, variables, var_count);
 }
 

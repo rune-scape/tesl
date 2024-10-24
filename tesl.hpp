@@ -259,6 +259,8 @@ struct te_variable {
     te_fn_obj fn;
   };
 
+  te_strview get_name() const { return name; }
+
   te_variable(te_strview p_name, te_typed_value v) : name(p_name), type(v.type), value(v) {}
   te_variable(te_strview p_name, te_type t, te_value v) : name(p_name), type(t), value(v) {}
   te_variable(te_strview p_name, te_fn_obj p_func) : name(p_name), type(TE_FUNCTION), fn(p_func) {}
@@ -622,13 +624,13 @@ inline constexpr int8_t te_size_of(te_type type) {
 te_typed_value te_interp(const char * expression, te_error_record * error = nullptr);
 
 /* Parses the input as a program and binds variables. */
-te_program te_compile_program(const char * expression, const te_variable * variables, int var_count);
+te_program te_compile_program(const char * expression, te_variable * variables, int var_count);
 
 /* Parses the input as a suite and binds variables. */
-te_program te_compile_suite(const char * expression, const te_variable * variables, int var_count, te_type result_type);
+te_program te_compile_suite(const char * expression, te_variable * variables, int var_count, te_type result_type);
 
 /* Parses the input as an expression and binds variables. */
-te_program te_compile_expr(const char * expression, const te_variable * variables, int var_count);
+te_program te_compile_expr(const char * expression, te_variable * variables, int var_count);
 
 /* Prints debugging information on the syntax tree. */
 void te_print_expr(const te_expr * n);
