@@ -26,11 +26,8 @@
 #define TESL_HPP
 
 #include <cmath>
-#include <climits>
-#include <cstddef>
 #include <cstring>
 #include <cstdint>
-#include <cstdio>
 
 #include <utility>
 
@@ -362,6 +359,7 @@ public:
   ~te_error_record();
   inline int get_line() { return line_num; }
   inline int get_column() { return point - line_start; }
+  void reset();
   inline void set_start(const char * p_start) { start = p_start; }
   inline void set_point(const char * p_point) { point = p_point; }
   inline void set_end(const char * p_end) { end = p_end; }

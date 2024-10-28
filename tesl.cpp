@@ -31,6 +31,7 @@ For log = natural log uncomment the next line. */
 
 //#include <Arduino.h>
 #include <cctype>
+#include <cstdio>
 #include <malloc.h>
 
 #ifdef __linux__
@@ -76,7 +77,7 @@ struct te_token {
   enum type_t : char {
     NUL,
     END,
-    SEP,
+    COMMA,
     DOT,
     SEMICOLON,
     TYPENAME,
@@ -117,18 +118,18 @@ struct te_token {
     LESS_EQUAL,
     GREATER,
     GREATER_EQUAL,
-    ADD,
-    ADD_EQUAL,
-    SUB,
-    SUB_EQUAL,
-    MUL,
-    MUL_EQUAL,
-    DIV,
-    DIV_EQUAL,
-    MOD,
-    MOD_EQUAL,
-    INC,
-    DEC,
+    PLUS,
+    PLUS_EQUAL,
+    MINUS,
+    MINUS_EQUAL,
+    STAR,
+    STAR_EQUAL,
+    SLASH,
+    SLASH_EQUAL,
+    PERCENT,
+    PERCENT_EQUAL,
+    PLUS_PLUS,
+    MINUS_MINUS,
   };
 
   bool operator==(type_t t) {
@@ -229,7 +230,7 @@ extern "C" {
           case te_token::END:
             OUT_STR_("<end>");
             break;
-          case te_token::SEP:
+          case te_token::COMMA:
             OUT_STR_("','");
             break;
           case te_token::DOT:
@@ -352,34 +353,34 @@ extern "C" {
           case te_token::GREATER_EQUAL:
             OUT_STR_("'>='");
             break;
-          case te_token::ADD:
+          case te_token::PLUS:
             OUT_STR_("'+'");
             break;
-          case te_token::ADD_EQUAL:
+          case te_token::PLUS_EQUAL:
             OUT_STR_("'+='");
             break;
-          case te_token::SUB:
+          case te_token::MINUS:
             OUT_STR_("'-'");
             break;
-          case te_token::SUB_EQUAL:
+          case te_token::MINUS_EQUAL:
             OUT_STR_("'-='");
             break;
-          case te_token::MUL:
+          case te_token::STAR:
             OUT_STR_("'*'");
             break;
-          case te_token::MUL_EQUAL:
+          case te_token::STAR_EQUAL:
             OUT_STR_("'*='");
             break;
-          case te_token::DIV:
+          case te_token::SLASH:
             OUT_STR_("'/'");
             break;
-          case te_token::DIV_EQUAL:
+          case te_token::SLASH_EQUAL:
             OUT_STR_("'/='");
             break;
-          case te_token::MOD:
+          case te_token::PERCENT:
             OUT_STR_("'%'");
             break;
-          case te_token::MOD_EQUAL:
+          case te_token::PERCENT_EQUAL:
             OUT_STR_("'%='");
             break;
           default:
@@ -525,7 +526,7 @@ struct te_parser_state {
   };
 
   te_type return_type = TE_NULL;
-  int stmt_count = 0;
+  int32_t stmt_count = 0;
 
   te_variable * global_vars = nullptr;
   int32_t global_var_count = 0;
@@ -535,6 +536,21 @@ struct te_parser_state {
   local_var_t vars[TE_MAX_VAR_COUNT];
   te_op * stmts[TE_MAX_STMT_COUNT];
 };
+
+void te_error_record::reset() {
+  if (state) {
+    line_start = state->line_start;
+    point = start = state->token.name.ptr;
+    end = state->token.name.end;
+    line_num = state->line_num;
+  } else {
+    line_start = nullptr;
+    start = nullptr;
+    point = nullptr;
+    end = nullptr;
+    line_num = 0;
+  }
+}
 
 te_error_record::te_error_record(te_parser_state & s) : state(&s), prev(s.error) {
   line_start = s.line_start;
@@ -679,6 +695,13 @@ void te_end_scope(te_parser_state & s, int32_t prev_stack_size) {
     }
   }
 }
+
+struct te_scope_decl {
+  te_parser_state & state;
+  int32_t prev_stack_size;
+  te_scope_decl(te_parser_state & s) : state(s), prev_stack_size(te_begin_scope(s)) {}
+  ~te_scope_decl() { te_end_scope(state, prev_stack_size); }
+};
 
 constexpr te_int te_expr_size(const te_expr * expr) {
   if (!expr) {
@@ -1726,13 +1749,23 @@ static void next_token(te_parser_state & s) {
     }
 
     if (s.token.name.ptr[0] == '"') {
-      const char * end_quote = strchr(s.token.name.ptr + 1, '"');
-      while (end_quote[-1] != '\\') end_quote = strchr(end_quote + 1, '"');
+      const char * end_quote = s.token.name.ptr + 1;
+      while (end_quote[0] != '"' || end_quote[-1] == '\\') {
+        if (end_quote[0] == '\0') {
+          te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
+          te_printf("error: unexpected end of input!\n");
+#endif
+          te_print_error(s);
+        }
+        ++end_quote;
+      }
       s.token.name.end = end_quote + 1;
 
       s.type = TE_STR;
       s.token.type = te_token::STR_LITERAL;
       // Parse later ...
+      break;
     }
 
     if (isalpha(s.token.name.ptr[0]) || s.token.name.ptr[0] == '_') {
@@ -1919,51 +1952,51 @@ static void next_token(te_parser_state & s) {
       case '+': {
         if (*s.token.name.end == '+') {
           s.token.name.end++;
-          s.token.type = te_token::INC;
+          s.token.type = te_token::PLUS_PLUS;
         } else if (*s.token.name.end == '=') {
           s.token.name.end++;
-          s.token.type = te_token::ADD_EQUAL;
+          s.token.type = te_token::PLUS_EQUAL;
         } else {
-          s.token.type = te_token::ADD;
+          s.token.type = te_token::PLUS;
         }
       }
         break;
       case '-': {
         if (*s.token.name.end == '-') {
           s.token.name.end++;
-          s.token.type = te_token::DEC;
+          s.token.type = te_token::MINUS_MINUS;
         } else if (*s.token.name.end == '=') {
           s.token.name.end++;
-          s.token.type = te_token::SUB_EQUAL;
+          s.token.type = te_token::MINUS_EQUAL;
         } else {
-          s.token.type = te_token::SUB;
+          s.token.type = te_token::MINUS;
         }
       }
         break;
       case '*': {
         if (*s.token.name.end == '=') {
           s.token.name.end++;
-          s.token.type = te_token::MUL_EQUAL;
+          s.token.type = te_token::STAR_EQUAL;
         } else {
-          s.token.type = te_token::MUL;
+          s.token.type = te_token::STAR;
         }
       }
         break;
       case '/': {
         if (*s.token.name.end == '=') {
           s.token.name.end++;
-          s.token.type = te_token::DIV_EQUAL;
+          s.token.type = te_token::SLASH_EQUAL;
         } else {
-          s.token.type = te_token::DIV;
+          s.token.type = te_token::SLASH;
         }
       }
         break;
       case '%': {
         if (*s.token.name.end == '=') {
           s.token.name.end++;
-          s.token.type = te_token::MOD_EQUAL;
+          s.token.type = te_token::PERCENT_EQUAL;
         } else {
-          s.token.type = te_token::MOD;
+          s.token.type = te_token::PERCENT;
         }
       }
         break;
@@ -1986,7 +2019,7 @@ static void next_token(te_parser_state & s) {
         s.token.type = te_token::CLOSE_CURLY_BRACKET;
         break;
       case ',':
-        s.token.type = te_token::SEP;
+        s.token.type = te_token::COMMA;
         break;
       case '.':
         s.token.type = te_token::DOT;
@@ -2488,7 +2521,7 @@ static te_expr * base(te_parser_state & s) {
             arg = nullptr;
           }
 
-          if (s.token == te_token::SEP) {
+          if (s.token == te_token::COMMA) {
             next_token(s);
           }
         }
@@ -2881,17 +2914,17 @@ static te_expr * factor(te_parser_state & s) {
   bool bool_not_flag = false;
   bool pos = true;
   bool pre_incdec = false;
-  if (s.token == te_token::ADD) {
+  if (s.token == te_token::PLUS) {
     pos = true;
     next_token(s);
-  } else if (s.token == te_token::SUB) {
+  } else if (s.token == te_token::MINUS) {
     pos = false;
     next_token(s);
-  } else if (s.token == te_token::INC) {
+  } else if (s.token == te_token::PLUS_PLUS) {
     pos = true;
     pre_incdec = true;
     next_token(s);
-  } else if (s.token == te_token::DEC) {
+  } else if (s.token == te_token::MINUS_MINUS) {
     pos = false;
     pre_incdec = true;
     next_token(s);
@@ -2964,10 +2997,10 @@ static te_expr * factor(te_parser_state & s) {
   ret_type = ret ? ret->type : TE_ERROR;
 
   int postfix = 0;
-  if (s.token == te_token::INC) {
+  if (s.token == te_token::PLUS_PLUS) {
     postfix = 1;
     next_token(s);
-  } else if (s.token == te_token::DEC) {
+  } else if (s.token == te_token::MINUS_MINUS) {
     postfix = -1;
     next_token(s);
   }
@@ -3017,7 +3050,7 @@ static te_expr * term(te_parser_state & s) {
 
     te_token::type_t tt = te_token::NUL;
     char c = '?';
-    if (s.token == te_token::MUL || s.token == te_token::DIV || s.token == te_token::MOD) {
+    if (s.token == te_token::STAR || s.token == te_token::SLASH || s.token == te_token::PERCENT) {
       tt = s.token.type;
       c = *s.token.name.ptr;
     } else {
@@ -3031,13 +3064,13 @@ static te_expr * term(te_parser_state & s) {
 
     te_fn_obj fn;
     switch (tt) {
-      case te_token::MUL:
+      case te_token::STAR:
         fn = te_get_mul_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
         break;
-      case te_token::DIV:
+      case te_token::SLASH:
         fn = te_get_div_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
         break;
-      case te_token::MOD:
+      case te_token::PERCENT:
         fn = te_get_mod_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
         break;
       default:
@@ -3090,7 +3123,7 @@ static te_expr * expr(te_parser_state & s) {
 
     te_token::type_t tt = te_token::NUL;
     char c = '?';
-    if (s.token == te_token::ADD || s.token == te_token::SUB) {
+    if (s.token == te_token::PLUS || s.token == te_token::MINUS) {
       tt = s.token.type;
       c = *s.token.name.ptr;
     } else {
@@ -3104,10 +3137,10 @@ static te_expr * expr(te_parser_state & s) {
 
     te_fn_obj fn;
     switch (tt) {
-      case te_token::ADD:
+      case te_token::PLUS:
         fn = te_get_add_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
         break;
-      case te_token::SUB:
+      case te_token::MINUS:
         fn = te_get_sub_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
         break;
       default:
@@ -3143,6 +3176,75 @@ static te_expr * expr(te_parser_state & s) {
 #endif
 
   return ret;
+}
+
+using te_parse_fn = void(*)(te_parser_state & s, te_expr * lhs, te_expr * rhs);
+
+te_parse_fn get_prefix_precedence(te_token::type_t token) {
+  switch (token) {
+    case te_token::NUL: break;
+    case te_token::END: break;
+    case te_token::COMMA: return 0;
+    case te_token::DOT: return 0;
+    case te_token::SEMICOLON:
+    case te_token::TYPENAME:
+    case te_token::IDENTIFIER:
+    case te_token::OPEN_PAREN:
+    case te_token::CLOSE_PAREN:
+    case te_token::OPEN_SQUARE_BRACKET:
+    case te_token::CLOSE_SQUARE_BRACKET:
+    case te_token::OPEN_CURLY_BRACKET:
+    case te_token::CLOSE_CURLY_BRACKET:
+    case te_token::INT_LITERAL:
+    case te_token::FLOAT_LITERAL:
+    case te_token::STR_LITERAL:
+    case te_token::UNIFORM:
+    case te_token::IN:
+    case te_token::OUT:
+    case te_token::INOUT:
+    case te_token::IF:
+    case te_token::ELSE:
+    case te_token::SWITCH:
+    case te_token::CASE:
+    case te_token::FOR:
+    case te_token::WHILE:
+    case te_token::DO:
+    case te_token::BREAK:
+    case te_token::CONTINUE:
+    case te_token::RETURN:
+    case te_token::DISCARD:
+    case te_token::AND:
+    case te_token::AND_AND:
+    case te_token::OR:
+    case te_token::OR_OR:
+    case te_token::EQUAL:
+    case te_token::EQUAL_EQUAL:
+    case te_token::BANG:
+    case te_token::BANG_EQUAL:
+    case te_token::LESS:
+    case te_token::LESS_EQUAL:
+    case te_token::GREATER:
+    case te_token::GREATER_EQUAL:
+    case te_token::PLUS:
+    case te_token::PLUS_EQUAL:
+    case te_token::MINUS:
+    case te_token::MINUS_EQUAL:
+    case te_token::STAR:
+    case te_token::STAR_EQUAL:
+    case te_token::SLASH:
+    case te_token::SLASH_EQUAL:
+    case te_token::PERCENT:
+    case te_token::PERCENT_EQUAL:
+    case te_token::PLUS_PLUS:
+    case te_token::MINUS_MINUS:
+      break;
+  }
+  
+  return 0;
+}
+
+te_parse_fn parse_precedence(te_token::type_t token) {
+  
 }
 
 static te_expr * parse_fn(te_parser_state & s) {
@@ -3200,26 +3302,26 @@ static void parse_suite(te_parser_state & s, te_token::type_t end_token) {
   te_printf("entered suite\n");
 #endif
 
-  te_int prev_stack_size = te_begin_scope(s);
+  {
+    te_scope_decl scope_decl(s);
 
-  te_expr * ret = nullptr;
-  while (true) {
-    if (s.token == end_token) {
-      next_token(s);
-      break;
-    } else if (s.token == te_token::END) {
-      te_error_record er2(s);
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: end of input!\n");
-#endif
-      te_print_error(s);
-      break;
+    te_expr * ret = nullptr;
+    while (true) {
+      if (s.token == end_token) {
+        next_token(s);
+        break;
+      } else if (s.token == te_token::END) {
+        te_error_record er2(s);
+  #ifdef TE_DEBUG_COMPILE
+        te_printf("error: end of input!\n");
+  #endif
+        te_print_error(s);
+        break;
+      }
+
+      parse_stmt(s);
     }
-
-    parse_stmt(s);
   }
-
-  te_end_scope(s, prev_stack_size);
 
 #ifdef TE_DEBUG_PEDANTIC
   te_printf("exited suite: stmt_count=%d\n", s.stmt_count);
@@ -3234,6 +3336,7 @@ static te_expr * parse_standalone_suite(te_parser_state & s) {
 
 static void parse_if_stmt(te_parser_state & s) {
   next_token(s);
+
   if (s.token != te_token::OPEN_PAREN) {
     te_error_record er2(s);
 #ifdef TE_DEBUG_COMPILE
@@ -3260,6 +3363,7 @@ static void parse_if_stmt(te_parser_state & s) {
 #endif
     te_print_error(s);
   }
+  next_token(s);
 
   te_jmp_if_not_op * jmp_if_expr = new_jmp_if_not_op(te_jmp_op::unknown_offset, cond_expr);
   push_stmt(s, jmp_if_expr);
@@ -3273,7 +3377,6 @@ static void parse_if_stmt(te_parser_state & s) {
     te_print_error(s);
   }
 
-  next_token(s);
   parse_stmt(s);
 
   if (s.token == te_token::ELSE) {
@@ -3313,6 +3416,93 @@ static void parse_var_stmt(te_parser_state & s, bool allow_assign) {
   }
 }
 
+static void parse_for_stmt(te_parser_state & s) {
+  next_token(s);
+
+  if (s.token != te_token::OPEN_PAREN) {
+    te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
+    te_printf("error: expected '(' got ");
+    te_print_token(s.token);
+    te_printf("!\n");
+#endif
+    te_print_error(s);
+  }
+  next_token(s);
+
+  {
+    te_scope_decl scope_decl(s);
+
+    parse_var_stmt(s, true);
+
+    if (s.token != te_token::SEMICOLON) {
+      te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
+      te_printf("error: expected ';' got ");
+      te_print_token(s.token);
+      te_printf("!\n");
+#endif
+      te_print_error(s);
+    }
+    next_token(s);
+
+    te_error_record er(s);
+    te_expr * cond_expr = expr(s);
+    te_type cond_expr_result_type = cond_expr ? cond_expr->type : TE_ERROR;
+    er.set_end(s.token.name.end);
+
+    if (s.token != te_token::SEMICOLON) {
+      te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
+      te_printf("error: expected ';' got ");
+      te_print_token(s.token);
+      te_printf("!\n");
+#endif
+      te_print_error(s);
+    }
+    next_token(s);
+
+    te_jmp_op * jmp_cond_expr = new_jmp_op(te_jmp_op::unknown_offset);
+    push_stmt(s, jmp_cond_expr);
+
+    te_expr * update_expr = expr(s);
+
+    if (s.token != te_token::CLOSE_PAREN) {
+      te_error_record er2(s);
+#ifdef TE_DEBUG_COMPILE
+      te_printf("error: expected ')' got ");
+      te_print_token(s.token);
+      te_printf("!\n");
+#endif
+      te_print_error(s);
+    }
+    next_token(s);
+
+    int32_t loop_start_offset = s.stmt_count;
+
+    parse_stmt(s);
+
+    push_stmt(s, update_expr);
+
+    int32_t loop_cond_offset = s.stmt_count;
+    te_jmp_if_op * jmp_if_expr = new_jmp_if_op(loop_start_offset, cond_expr);
+    push_stmt(s, jmp_if_expr);
+
+    if (jmp_if_expr != nullptr && (cond_expr_result_type | TE_CONSTANT) != TE_INT) {
+#ifdef TE_DEBUG_COMPILE
+      te_printf("error: conditional expr must be an int! type: ");
+      te_print_type_name(cond_expr_result_type);
+      te_printf("\n");
+#endif
+      te_print_error(s);
+    }
+
+    if (jmp_cond_expr) {
+      jmp_cond_expr->offset = loop_cond_offset;
+    }
+  }
+}
+
 static void parse_return_stmt(te_parser_state & s) {
   next_token(s);
 
@@ -3323,7 +3513,7 @@ static void parse_return_stmt(te_parser_state & s) {
 #ifdef TE_DEBUG_COMPILE
       te_printf("error: expected ");
       te_print_type_name(s.return_type);
-      te_printf("!\n");
+      te_printf(" expression!\n");
 #endif
       te_print_error(s);
     }
@@ -3361,6 +3551,8 @@ static void parse_stmt(te_parser_state & s) {
     parse_suite(s, te_token::CLOSE_CURLY_BRACKET);
   } else if (s.token == te_token::IF) {
     parse_if_stmt(s);
+  } else if (s.token == te_token::FOR) {
+    parse_for_stmt(s);
   } else {
     if (s.token == te_token::TYPENAME) {
       parse_var_stmt(s, true);
@@ -3828,6 +4020,9 @@ void te_print_value(const te_typed_value & v) {
         te_printf(", ");
         te_print_value({*reinterpret_cast<const te_value *>(&v.mat4.arr[3]), TE_VEC4});
         te_printf(")");
+        break;
+      case TE_STR:
+        te_printf(v.str);
         break;
       default:
         te_printf("<unknown:0x%04x>", int(type));
