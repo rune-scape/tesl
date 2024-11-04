@@ -1,6 +1,5 @@
 #include "tesl.hpp"
 
-
 int main(int argc, const char **argv) {
   te_program program;
 

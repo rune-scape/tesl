@@ -28,8 +28,7 @@
 #include <cmath>
 #include <cstring>
 #include <cstdint>
-
-#include <utility>
+#include <type_traits>
 
 #include "printf.h"
 
@@ -42,7 +41,7 @@
 #ifdef TE_DISABLE_PRINTF
 #define te_printf(...)
 #else
-#define te_printf printf
+#define te_printf printf_
 #endif
 
 #define TE_MAX_VAR_COUNT 128
@@ -110,7 +109,7 @@ using te_int = int32_t;
 
 struct te_vec2 {
   union {
-    te_float elements[2]{0.0f};
+    te_float elements[2] = {0.0f};
     te_float arr[2];
     struct { te_float x, y; };
     struct { te_float r, g; };
@@ -119,7 +118,7 @@ struct te_vec2 {
 
 struct te_vec3 {
   union {
-    te_float elements[3]{0.0f};
+    te_float elements[3] = {0.0f};
     te_float arr[3];
     struct { te_float x, y, z; };
     struct { te_float r, g, b; };
@@ -162,7 +161,8 @@ struct te_strview {
     return end - ptr;
   }
 
-  te_strview(const char * str, const int32_t p_length) : ptr(str), end(str + p_length) {}
+  te_strview(const char * s, const char * e) : ptr(s), end(e) {}
+  te_strview(const char * s, const int32_t len) : ptr(s), end(s + len) {}
   te_strview(const char * str) : ptr(str), end(str + strlen(str)) {}
   te_strview() {}
 };
@@ -275,9 +275,10 @@ struct te_expr : te_op {
 static_assert(sizeof(te_expr) == 2);
 
 struct te_error_expr : te_expr {
-  te_expr * source = nullptr;
+  uint16_t source_count = 0;
+  te_expr * sources[0];
 };
-static_assert(sizeof(te_error_expr) == 8);
+static_assert(sizeof(te_error_expr) == 4);
 
 struct te_value_expr : public te_expr {
   uint16_t size = 0;
@@ -363,6 +364,7 @@ public:
   inline void set_start(const char * p_start) { start = p_start; }
   inline void set_point(const char * p_point) { point = p_point; }
   inline void set_end(const char * p_end) { end = p_end; }
+  void print() const;
 };
 
 /* Frees the expression. */
@@ -540,27 +542,36 @@ namespace te {
     template<auto Fn, typename R, typename ... Ps>
     struct function : public function0<index_sequence_helper<sizeof...(Ps)>, Fn, R, Ps...> {};
 
-    template<te_function Fn, bool Pure, te_type RT, te_type ... PTs>
-    struct make_function_raw {
-      inline static constexpr te_fn_obj call() {
-        static_assert(sizeof...(PTs) <= TE_PARAM_COUNT_MAX, "too many parameters!");
-        te_fn_obj ret;
-        ret.ptr = Fn;
-        ret.context = nullptr;
-        ret.return_type = RT;
-        ret.pure = Pure;
-        ret.param_count = sizeof...(PTs);
+    constexpr te_fn_obj make_function_raw(te_function fn, void * context, bool pure, te_type return_type, const te_type * param_types, int param_count) {
+      te_fn_obj ret;
+      ret.ptr = fn;
+      ret.context = context;
+      ret.return_type = return_type;
+      ret.pure = pure;
+      ret.param_count = param_count;
 
-        te_type ps[] = {PTs ...};
-        for (int i = 0; i < sizeof...(PTs); ++i) {
-          ret.param_types[i] = ps[i];
+      for (int i = 0; i < param_count; ++i) {
+        if (i >= TE_PARAM_COUNT_MAX) {
+          te_printf("error: too many parameters!");
+          break;
         }
-        return ret;
+        ret.param_types[i] = param_types[i];
       }
+      return ret;
     };
 
+    template<typename T, auto N>
+    constexpr te_fn_obj make_function_raw(te_function fn, void * context, bool pure, te_type return_type, const T (&param_types)[N]) {
+      return make_function_raw(fn, context, pure, return_type, param_types, N);
+    }
+
     template<auto Fn, bool Pure, typename R, typename ... Ps>
-    struct make_function_impl : public make_function_raw<function<Fn, R, Ps...>::call, Pure, type_value_of<R>, type_value_of<Ps>...> {};
+    struct make_function_impl {
+      inline static constexpr te_fn_obj call() {
+        static_assert(sizeof...(Ps) <= TE_PARAM_COUNT_MAX, "too many parameters!");
+        return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, type_value_of<R>, (te_type[]){type_value_of<Ps>...});
+      }
+    };
 
     template<auto Fn, bool Pure>
     struct make_function;
