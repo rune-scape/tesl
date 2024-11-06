@@ -70,9 +70,9 @@ extern "C" {
         te_printf("error: \'" #cond "\' is true (at %s:%d)\n", __FILE__, __LINE__);\
         action;\
     } else ((void)0)
-#define TE_FAIL_COND_MSG(cond, action, str, ...)\
+#define TE_FAIL_COND_MSG(cond, action, ...)\
     if (cond) {\
-        te_printf(str "\n", __VA_ARGS__);\
+        te_printf(__VA_ARGS__);\
         action;\
     } else ((void)0)
 #else
@@ -80,7 +80,7 @@ extern "C" {
 #define TE_FAIL_COND_MSG(cond, action, str, ...) ((void)0)
 #endif
 
-#define TE_ASSERT(cond) if (!(cond)) { std::exit(-1); } else ((void)0)
+#define TE_ASSERT(cond) if (!(cond)) { exit(-1); } else ((void)0)
 
 struct te_token {
   enum kind_t : char {
@@ -188,6 +188,9 @@ struct te_token {
     return ret;
   }
 };
+
+bool operator==(te_token::kind_t k, te_token tok) { return k == tok.kind; }
+bool operator!=(te_token::kind_t k, te_token tok) { return k != tok.kind; }
 
 extern "C" {
   int _handle_extra_vsnprintf_spec(char spec, out_fct_type out, void* buffer, size_t idx, size_t maxlen, va_list *va) {
@@ -444,6 +447,13 @@ struct te_parser_state {
   te_op * stmts[TE_MAX_STMT_COUNT];
 
   void advance();
+
+  te_token consume() {
+    te_token ret = token;
+    advance();
+    return ret;
+  }
+
   te_expr * parse_precedence(int precedence);
   void print_error_location() const;
 };
@@ -488,7 +498,7 @@ te_program::te_program(te_program && other) : root_expr(other.root_expr), error(
 
 te_program & te_program::operator=(te_program && other) {
   root_expr = other.root_expr;
-  error = te::move(other.error);
+  error = static_cast<te_error_record &&>(other.error);
   other.root_expr = nullptr;
   return *this;
 }
@@ -660,17 +670,25 @@ constexpr int te_size_of_op(const te_op * op) {
   return -1;
 }
 
-template <typename ... T>
-static te_expr * new_error_expr(T ... sources) {
-  te_expr * sources_array[] = {sources...};
+static te_expr * new_error_expr(te_expr ** sources, int source_count) {
+  int sources_size = sizeof(te_expr *) * source_count;
 
-  const int size = sizeof(te_error_expr) + sizeof(sources_array);
+  const int size = sizeof(te_error_expr) + sources_size;
   te_error_expr * ret = static_cast<te_error_expr *>(malloc(size));
   ret->opcode = TE_OP_ERROR;
   ret->type = TE_ERROR;
-  ret->source_count = sizeof...(sources);
-  memcpy(ret->sources, sources_array, sizeof(sources_array));
+  ret->source_count = source_count;
+  memcpy(ret->sources, sources, sources_size);
   return ret;
+}
+
+template <auto Size>
+static te_expr * new_error_expr(te_expr * const (&sources)[Size]) {
+  return new_error_expr(sources, Size);
+}
+
+static te_expr * new_error_expr() {
+  return new_error_expr(nullptr, 0);
 }
 
 static te_expr * new_value_expr(te_type type, const te_value & value) {
@@ -761,7 +779,7 @@ static te_expr * new_deref_expr(te_type target_type, te_expr * e) {
     te_print_type_name(target_type);
     te_printf("\n");
 #endif
-    return new_error_expr(e);
+    return new_error_expr({e});
   }
 
   const int value_size = te_size_of(dereferenced_type);
@@ -789,7 +807,7 @@ static te_expr * new_assign_expr(te_expr * lhs, te_expr * rhs) {
     te_print_type_name(lhs_type);
     te_printf("\n");
 #endif
-    return new_error_expr(ret);
+    return new_error_expr({ret});
   }
   return ret;
 }
@@ -859,18 +877,18 @@ static te_expr * new_call_expr(const te_fn_obj &fn, te_expr * const * args, cons
 #ifdef TE_DEBUG_COMPILE
   if (fn.param_count != arg_count) {
     te_printf("internal error: expected %d args, got %d!\n", fn.param_count, arg_count);
-    return new_error_expr(ret);
+    return new_error_expr({ret});
   }
 
   if (arg_count > TE_PARAM_COUNT_MAX) {
     te_printf("error: %d is too many parameters! max parameters: %d\n", arg_count, TE_PARAM_COUNT_MAX);
-    return new_error_expr(ret);
+    return new_error_expr({ret});
   }
 
   for (int i = 0; i < arg_count; ++i) {
     if (args[i] == nullptr) {
       te_printf("internal error: arg %d is null!\n", i);
-      return new_error_expr(ret);
+      return new_error_expr({ret});
     }
   }
 #endif
@@ -3085,21 +3103,29 @@ namespace tesl {
 
   namespace util {
     template<typename T, auto ... Vs>
-    struct first_value_of;
+    struct first_value_of_type;
 
     template<typename T, auto V, auto ... NextVs>
-    struct first_value_of<T, V, NextVs...> : public first_value_of<T, NextVs...> {
+    struct first_value_of_type<T, V, NextVs...> : public first_value_of_type<T, NextVs...> {
     };
 
     template<typename T, T V, auto ... NextVs>
-    struct first_value_of<T, V, NextVs...> {
+    struct first_value_of_type<T, V, NextVs...> {
       static constexpr T value = V;
       static constexpr bool exists = true;
     };
 
     template<typename T>
-    struct first_value_of<T> {
+    struct first_value_of_type<T> {
       static constexpr bool exists = false;
+    };
+
+    template<auto ... Vs>
+    struct first_value_of;
+
+    template<typename V, typename ... Vs>
+    struct first_value_of<V, Vs> {
+      static constexpr auto value = V;
     };
 
     template<auto ... Vs>
@@ -3110,113 +3136,117 @@ namespace tesl {
   }
 
   namespace parse {
-    struct parsed_node_t {
-      enum {
-        TOKEN,
-        EXPR,
-      } kind;
+    struct parsed_sequence_t {
+      struct node {
+        enum kind_t : int8_t {
+          TOKEN,
+          EXPR,
+        } kind;
 
-      union {
-        te_token token;
-        te_expr * expr;
+        union {
+          te_token token{};
+          struct {
+            te_expr * expr;
+            int8_t precedence;
+          };
+        };
+
+        node(const te_token & t) : kind(TOKEN), token(t) {}
+        node(te_expr * e) : kind(EXPR), expr(e) {}
+        node() = default;
       };
 
-      parsed_node_t(te_token t) : kind(TOKEN), token(t) {}
-      parsed_node_t(te_expr * e) : kind(EXPR), expr(e) {}
-    };
-
-    struct parsed_sequence_t {
-      const parsed_node_t * elements = nullptr;
+      const node * nodes = nullptr;
       const int size = 0;
 
-      operator const parsed_node_t *() const { return elements; }
+      operator const node *() { return nodes; }
     };
 
-    static parsed_node_t parse_literal_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_literal_expr");
+    static te_expr * parse_literal_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_literal_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_identifier_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_identifier_expr");
+    static te_expr * parse_identifier_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_identifier_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_grouping_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_grouping_expr");
+    static te_expr * parse_grouping_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_grouping_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_subscript_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_subscript_expr");
+    static te_expr * parse_subscript_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_subscript_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_call_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_call_expr");
+    static te_expr * parse_call_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_call_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_swizzle_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_swizzle_expr");
+    static te_expr * parse_dot_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_dot_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_postfix_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_postfix_expr");
+    static te_expr * parse_postfix_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_postfix_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_prefix_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_prefix_expr");
+    static te_expr * parse_prefix_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_prefix_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_arithmetic_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_arithmetic_expr");
+    static te_expr * parse_arithmetic_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_arithmetic_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_comparison_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_comparison_expr");
+    static te_expr * parse_comparison_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_comparison_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_bitwise_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_bitwise_op_expr");
+    static te_expr * parse_bitwise_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_bitwise_op_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_boolean_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_boolean_op_expr");
+    static te_expr * parse_boolean_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_boolean_op_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_ternary_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_ternary_expr");
+    static te_expr * parse_ternary_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_ternary_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_assignment_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      te_printf("parse_assignment_expr");
+    static te_expr * parse_assignment_expr(te_parser_state & s, parsed_sequence_t sequence) {
+      te_printf("parse_assignment_expr: n=%d", sequence.size);
       // TODO: finish
       return nullptr;
     }
 
-    static parsed_node_t parse_sequence_expr(te_parser_state & s, parsed_sequence_t sequence) {
+    static te_expr * parse_sequence_expr(te_parser_state & s, parsed_sequence_t sequence) {
       TE_FAIL_COND(sequence.size >= 3, return nullptr);
       TE_FAIL_COND(sequence.size % 2 == 1, return nullptr);
 
@@ -3229,7 +3259,7 @@ namespace tesl {
       te_type param_types[sequence_size];
       for (int i = 0; i < sequence.size; ++i) {
         if (i % 2 == 0) {
-          TE_FAIL_COND(sequence[i].kind == parsed_node_t::EXPR, return nullptr);
+          TE_FAIL_COND(sequence[i].kind == parsed_sequence_t::node::EXPR, return nullptr);
           TE_FAIL_COND(sequence[i].expr != nullptr, return nullptr);
           args[i / 2] = sequence[i].expr;
           param_types[i] = args[i]->type;
@@ -3239,7 +3269,7 @@ namespace tesl {
             size = te_size_of(param_types[i]);
           }
         } else {
-          TE_FAIL_COND(sequence[i].kind == parsed_node_t::TOKEN, return nullptr);
+          TE_FAIL_COND(sequence[i].kind == parsed_sequence_t::node::TOKEN, return nullptr);
           TE_FAIL_COND(sequence[i].token.kind == te_token::COMMA, return nullptr);
         }
       }
@@ -3250,7 +3280,10 @@ namespace tesl {
       return new_call_expr(te::detail::make_function_raw(te::sequence, ctx, true, TE_NULL, param_types, sequence_size), args, sequence_size);
     }
 
-    namespace pattern {
+    namespace rules {
+      constexpr int16_t max_sequence_size = TE_PARAM_COUNT_MAX * 2 + 2 + 2;
+      using parse_fn = te_expr * (*)(te_parser_state & s, parsed_sequence_t sequence);
+
       struct element_t {
         enum kind_t : int8_t {
           TOKEN,
@@ -3264,6 +3297,8 @@ namespace tesl {
         union {
           te_token::kind_t token = te_token::NONE;
           int8_t n;
+          int8_t offset;
+          int8_t size;
         };
 
 
@@ -3277,250 +3312,475 @@ namespace tesl {
       };
 
       struct pattern_ref_t {
+        int16_t size = 0;
+        int16_t sequence_size = 0;
         const element_t * elements = nullptr;
-        int size = 0;
+
+        constexpr operator const element_t *() const { return elements; }
       };
 
-      struct pattern_ref_list_t {
-        const pattern_ref_t * patterns = nullptr;
-        int size = 0;
-
-        operator const pattern_ref_t *() const { return patterns; }
+      struct rule_ref_storage_t {
+        parse_fn parse = nullptr;
+        pattern_ref_t pattern;
       };
 
-      typedef parsed_node_t (*parse_fn)(te_parser_state & s, parsed_sequence_t sequence);
+      struct rule_ref_t {
+        parse_fn parse = nullptr;
+        pattern_ref_t pattern;
+        int8_t precedence = -1;
+
+        bool is_valid() const { return pattern.size > 0 && parse != nullptr; }
+
+        constexpr rule_ref_t(rule_ref_storage_t r, int8_t p) : parse(r.parse), pattern(r.pattern), precedence(p) {}
+        constexpr rule_ref_t() = default;
+      };
+
+      struct rule_ref_list_storage_t {
+        const rule_ref_storage_t * rules = nullptr;
+        int16_t size = 0;
+
+        constexpr operator const rule_ref_storage_t *() const { return rules; }
+      };
+
+      struct rule_ref_list_t {
+        const rule_ref_storage_t * rules = nullptr;
+        int16_t size = 0;
+        int8_t precedence = -1;
+
+        constexpr rule_ref_t operator[](int i) const { return {rules[i], precedence}; }
+
+        constexpr rule_ref_list_t(rule_ref_list_storage_t rl, int8_t p) : rules(rl.rules), size(rl.size), precedence(p) {}
+      };
 
       template<auto ElementCount>
       struct pattern_t {
-        parse_fn parse = nullptr;
+        static constexpr int size = ElementCount;
         element_t elements[ElementCount];
 
-        operator const element_t *() const { return elements; }
+        constexpr operator const element_t *() const { return elements; }
+      };
+
+      template<typename ... Ts>
+      constexpr pattern_t<sizeof...(Ts)> make_pattern(Ts ... elements) {
+        static_assert(sizeof...(elements) > 0);
+        return {element_t{elements}...};
+      }
+
+      template<auto ElementCount>
+      struct rule_t {
+        parse_fn parse = nullptr;
+        pattern_t<ElementCount> pattern;
       };
 
       template<auto ElementCount>
-      constexpr pattern_t<ElementCount> make_pattern(parse_fn fn, const element_t (&elements)[ElementCount]) {
-        pattern_t<ElementCount> ret;
-        ret.parse = fn;
-        for (int i = 0; i < ElementCount; ++i) {
-          ret.elements[i] = elements[i];
-        }
-        return ret;
+      constexpr rule_t<ElementCount> make_rule(parse_fn parse_fn, pattern_t<ElementCount> pattern) {
+        return {parse_fn, pattern};
       }
 
       template<typename T>
-      struct pattern_list_impl;
+      struct rule_list_impl;
 
       template<auto V, auto ... NextVs>
-      struct pattern_list_impl<util::value_pack<V, NextVs...>> : pattern_list_impl<util::value_pack<NextVs...>> {
-        using base = pattern_list_impl<util::value_pack<NextVs...>>;
+      struct rule_list_impl<util::value_pack<V, NextVs...>> : rule_list_impl<util::value_pack<NextVs...>> {
+        using base = rule_list_impl<util::value_pack<NextVs...>>;
         
-        pattern_t<V> pattern;
+        rule_t<V> this_rule;
         static constexpr int size = sizeof...(NextVs) + 1;
 
-        constexpr pattern_list_impl(const pattern_t<V> & p, const pattern_t<NextVs> & ... ps) : base(ps...), pattern(p) {}
-      };
-
-      template<>
-      struct pattern_list_impl<util::value_pack<>> {
-        pattern_t<0> pattern;
-        static constexpr int size = 0;
-      };
-
-      template<auto ... Vs>
-      struct pattern_list_t : pattern_list_impl<util::value_pack<Vs...>> {
-        using base = pattern_list_impl<util::value_pack<Vs...>>;
-
-        constexpr pattern_list_t(const pattern_t<Vs> & ... ps) : base(ps...) {}
-      };
-      // woof woof :3
-      template<typename T>
-      struct pattern_library_impl;
-
-      template<auto ... Vs, typename ... NextTs>
-      struct pattern_library_impl<util::type_pack<util::value_pack<Vs...>, NextTs...>> : pattern_library_impl<util::type_pack<NextTs...>> {
-        using base = pattern_library_impl<util::type_pack<NextTs...>>;
-
-        pattern_list_impl<util::value_pack<Vs...>> list;
-        pattern_ref_t list_patterns[sizeof...(Vs)];
-        static constexpr int size = sizeof...(NextTs) + 1;
-
-        constexpr pattern_ref_list_t operator[](int i) {
+        constexpr rule_ref_storage_t operator[](int i) {
           if (i < 0) {
             return {};
           } else if (i == 0) {
-            return {list_patterns, sizeof...(Vs)};
+            int16_t sequence_size = V;
+            for (int i = 0; i < this_rule.pattern.size; ++i) {
+              const element_t & e = this_rule.pattern.elements[i];
+              if (e.kind == element_t::JUMP) {
+                sequence_size = max_sequence_size;
+              }
+            }
+            return {this_rule.parse, {V, sequence_size, this_rule.pattern.elements}};
           } else {
             return base::operator[](i - 1);
           }
         }
 
-        constexpr pattern_library_impl(const pattern_list_impl<util::value_pack<Vs...>> & p, const pattern_list_impl<NextTs> & ... ps) : base(ps...), list(p) {
+        constexpr rule_list_impl(rule_t<V> rule, rule_t<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
+      };
+
+      template<>
+      struct rule_list_impl<util::value_pack<>> {
+        rule_t<0> pattern;
+        static constexpr int size = 0;
+
+        constexpr rule_ref_storage_t operator[](int i) {
+          return {};
+        }
+      };
+
+      template<auto ... Vs>
+      struct rule_list_t : rule_list_impl<util::value_pack<Vs...>> {
+        using base = rule_list_impl<util::value_pack<Vs...>>;
+
+        constexpr rule_list_t(rule_t<Vs> ... rules) : base(rules...) {}
+      };
+      // woof woof :3
+      template<typename T>
+      struct rule_library_impl;
+
+      template<auto ... Vs, typename ... NextTs>
+      struct rule_library_impl<util::type_pack<util::value_pack<Vs...>, NextTs...>> : rule_library_impl<util::type_pack<NextTs...>> {
+        using base = rule_library_impl<util::type_pack<NextTs...>>;
+
+        rule_list_impl<util::value_pack<Vs...>> this_list;
+        rule_ref_storage_t list_rules[sizeof...(Vs)];
+        static constexpr int size = sizeof...(NextTs) + 1;
+
+        constexpr rule_ref_list_storage_t operator[](int i) {
+          if (i < 0) {
+            return {};
+          } else if (i == 0) {
+            return {list_rules, sizeof...(Vs)};
+          } else {
+            return base::operator[](i - 1);
+          }
+        }
+
+        constexpr rule_library_impl(rule_list_impl<util::value_pack<Vs...>> rule_list, rule_list_impl<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
           for (int i = 0; i < sizeof...(Vs); ++i) {
-            list_patterns[i] = pattern_ref_t{p.pattern.elements, p.size};
+            list_rules[i] = this_list[i];
           }
         }
       };
 
       template<>
-      struct pattern_library_impl<util::type_pack<>> {
+      struct rule_library_impl<util::type_pack<>> {
         static constexpr int size = 0;
 
-        constexpr pattern_ref_list_t operator[](int i) {
+        constexpr rule_ref_list_storage_t operator[](int i) {
           return {};
         }
       };
 
       template<typename ... Ts>
-      struct pattern_library_t : public pattern_library_impl<util::type_pack<Ts...>> {
-        using base = pattern_library_impl<util::type_pack<Ts...>>;
+      struct rule_library_t : public rule_library_impl<util::type_pack<Ts...>> {
+        using base = rule_library_impl<util::type_pack<Ts...>>;
 
-        pattern_ref_list_t lists[sizeof...(Ts)];
+        rule_ref_list_storage_t lists[sizeof...(Ts)];
         static constexpr int size = sizeof...(Ts);
 
-        operator const pattern_ref_list_t *() const { return lists; }
+        constexpr rule_ref_list_t operator[](int8_t p) const { return {lists[p], p}; }
 
-        constexpr pattern_library_t(const pattern_list_impl<Ts> & ... ps) : base(ps...) {
+        constexpr rule_library_t(rule_list_impl<Ts> ... rule_lists) : base(rule_lists...) {
           for (int i = 0; i < sizeof...(Ts); ++i) {
             lists[i] = base::operator[](i);
           }
         }
       };
 
-
       template<int8_t Offset>
       constexpr element_t relative_precedence_expr = element_t{element_t::RELATIVE_PRECEDENCE_EXPR, Offset};
       template<int8_t Offset = 0>
       constexpr element_t top_level_expr = element_t{element_t::TOP_LEVEL_EXPR, Offset};
 
+      // matches an expression with lower precedence
       constexpr element_t lower_expr = relative_precedence_expr<-1>;
+
+      // matches an expression with same or lower precedence
       constexpr element_t similar_expr = relative_precedence_expr<0>;
 
+      // marks a block of length N starting at the next element that is optional
       template<int8_t N>
       constexpr element_t opt = element_t{element_t::OPTIONAL, N};
 
+      // jumps the element index to a relative offset N (used to make repeating patterns)
       template<int8_t N>
       constexpr element_t jmp = element_t{element_t::JUMP, N};
 
-      // TODO: fix call expr and sequence expr (theyre variable length)
-      pattern_library_t pattern_library{
-        pattern_list_t{
-          make_pattern(parse_literal_expr, {te_token::LITERAL}),
-          make_pattern(parse_identifier_expr, {te_token::IDENTIFIER}),
+      // exactly one of the first or second element of a pattern must be a token
+      // at most one of each token can appear in the first slot of all patterns (also applies to the second slot separately)
+      // the element immediately after an 'opt<...>' or after the block it creates must be a token
+      // the first expr must be a token or a similar_expr
+      constexpr rule_library_t pattern_library{
+        rule_list_t{
+          make_rule(parse_literal_expr, make_pattern(te_token::LITERAL)),
+          make_rule(parse_identifier_expr, make_pattern(te_token::IDENTIFIER)),
         },
-        pattern_list_t{
-          make_pattern(parse_grouping_expr, {te_token::OPEN_PAREN, top_level_expr<0>, te_token::CLOSE_PAREN}),
+        rule_list_t{
+          make_rule(parse_grouping_expr, make_pattern(te_token::OPEN_PAREN, top_level_expr<>, te_token::CLOSE_PAREN)),
         },
-        pattern_list_t{
-          make_pattern(parse_subscript_expr, {similar_expr, te_token::OPEN_SQUARE_BRACKET, top_level_expr<-1>, te_token::OPEN_SQUARE_BRACKET}),
-          make_pattern(parse_call_expr, {te_token::IDENTIFIER, te_token::OPEN_PAREN, opt<6>, top_level_expr<-1>, opt<4>, te_token::COMMA, top_level_expr<-1>, opt<1>, jmp<-2>, te_token::CLOSE_PAREN}),
-          make_pattern(parse_swizzle_expr, {similar_expr, te_token::DOT, te_token::IDENTIFIER}),
-          make_pattern(parse_postfix_expr, {similar_expr, te_token::PLUS_PLUS}),
-          make_pattern(parse_postfix_expr, {similar_expr, te_token::MINUS_MINUS}),
+        rule_list_t{
+          make_rule(parse_subscript_expr, make_pattern(similar_expr, te_token::OPEN_SQUARE_BRACKET, top_level_expr<-1>, te_token::OPEN_SQUARE_BRACKET)),
+          make_rule(parse_call_expr, make_pattern(similar_expr, te_token::OPEN_PAREN, opt<6>, top_level_expr<-1>, opt<4>, te_token::COMMA, top_level_expr<-1>, opt<1>, jmp<-2>, te_token::CLOSE_PAREN)),
+          make_rule(parse_dot_expr, make_pattern(similar_expr, te_token::DOT, te_token::IDENTIFIER)),
+          make_rule(parse_postfix_expr, make_pattern(similar_expr, te_token::PLUS_PLUS)),
+          make_rule(parse_postfix_expr, make_pattern(similar_expr, te_token::MINUS_MINUS)),
         },
-        pattern_list_t{
-          make_pattern(parse_prefix_expr, {te_token::PLUS_PLUS, similar_expr}),
-          make_pattern(parse_prefix_expr, {te_token::MINUS_MINUS, similar_expr}),
-          make_pattern(parse_prefix_expr, {te_token::PLUS, similar_expr}),
-          make_pattern(parse_prefix_expr, {te_token::MINUS, similar_expr}),
-          make_pattern(parse_prefix_expr, {te_token::BANG, similar_expr}),
+        rule_list_t{
+          make_rule(parse_prefix_expr, make_pattern(te_token::PLUS_PLUS, similar_expr)),
+          make_rule(parse_prefix_expr, make_pattern(te_token::MINUS_MINUS, similar_expr)),
+          make_rule(parse_prefix_expr, make_pattern(te_token::PLUS, similar_expr)),
+          make_rule(parse_prefix_expr, make_pattern(te_token::MINUS, similar_expr)),
+          make_rule(parse_prefix_expr, make_pattern(te_token::BANG, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_arithmetic_expr, {lower_expr, te_token::STAR, similar_expr}),
-          make_pattern(parse_arithmetic_expr, {lower_expr, te_token::SLASH, similar_expr}),
-          make_pattern(parse_arithmetic_expr, {lower_expr, te_token::PERCENT, similar_expr}),
+        rule_list_t{
+          make_rule(parse_arithmetic_expr, make_pattern(similar_expr, te_token::STAR, similar_expr)),
+          make_rule(parse_arithmetic_expr, make_pattern(similar_expr, te_token::SLASH, similar_expr)),
+          make_rule(parse_arithmetic_expr, make_pattern(similar_expr, te_token::PERCENT, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_arithmetic_expr, {lower_expr, te_token::PLUS, similar_expr}),
-          make_pattern(parse_arithmetic_expr, {lower_expr, te_token::MINUS, similar_expr}),
+        rule_list_t{
+          make_rule(parse_arithmetic_expr, make_pattern(similar_expr, te_token::PLUS, similar_expr)),
+          make_rule(parse_arithmetic_expr, make_pattern(similar_expr, te_token::MINUS, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_bitwise_op_expr, {lower_expr, te_token::LESS_LESS, similar_expr}),
-          make_pattern(parse_bitwise_op_expr, {lower_expr, te_token::GREATER_GREATER, similar_expr}),
+        rule_list_t{
+          make_rule(parse_bitwise_op_expr, make_pattern(similar_expr, te_token::LESS_LESS, similar_expr)),
+          make_rule(parse_bitwise_op_expr, make_pattern(similar_expr, te_token::GREATER_GREATER, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::LESS, similar_expr}),
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::GREATER, similar_expr}),
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::LESS_EQUAL, similar_expr}),
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::GREATER_EQUAL, similar_expr}),
+        rule_list_t{
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::LESS, similar_expr)),
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::GREATER, similar_expr)),
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::LESS_EQUAL, similar_expr)),
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::GREATER_EQUAL, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::EQUAL_EQUAL, similar_expr}),
-          make_pattern(parse_comparison_expr, {lower_expr, te_token::BANG_EQUAL, similar_expr}),
+        rule_list_t{
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::EQUAL_EQUAL, similar_expr)),
+          make_rule(parse_comparison_expr, make_pattern(similar_expr, te_token::BANG_EQUAL, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_bitwise_op_expr, {lower_expr, te_token::AND, similar_expr}),
+        rule_list_t{
+          make_rule(parse_bitwise_op_expr, make_pattern(similar_expr, te_token::AND, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_bitwise_op_expr, {lower_expr, te_token::CARET, similar_expr}),
+        rule_list_t{
+          make_rule(parse_bitwise_op_expr, make_pattern(similar_expr, te_token::CARET, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_bitwise_op_expr, {lower_expr, te_token::PIPE, similar_expr}),
+        rule_list_t{
+          make_rule(parse_bitwise_op_expr, make_pattern(similar_expr, te_token::PIPE, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_boolean_op_expr, {lower_expr, te_token::AND_AND, similar_expr}),
+        rule_list_t{
+          make_rule(parse_boolean_op_expr, make_pattern(similar_expr, te_token::AND_AND, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_boolean_op_expr, {lower_expr, te_token::CARET_CARET, similar_expr}),
+        rule_list_t{
+          make_rule(parse_boolean_op_expr, make_pattern(similar_expr, te_token::CARET_CARET, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_boolean_op_expr, {lower_expr, te_token::PIPE_PIPE, similar_expr}),
+        rule_list_t{
+          make_rule(parse_boolean_op_expr, make_pattern(similar_expr, te_token::PIPE_PIPE, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_ternary_expr, {lower_expr, te_token::QUESTION_MARK, similar_expr, te_token::COLON, similar_expr}),
+        rule_list_t{
+          make_rule(parse_ternary_expr, make_pattern(similar_expr, te_token::QUESTION_MARK, similar_expr, te_token::COLON, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_assignment_expr, {lower_expr, te_token::EQUAL, similar_expr}),
-          make_pattern(parse_assignment_expr, {lower_expr, te_token::PLUS_EQUAL, similar_expr}),
-          make_pattern(parse_assignment_expr, {lower_expr, te_token::MINUS_EQUAL, similar_expr}),
-          make_pattern(parse_assignment_expr, {lower_expr, te_token::STAR_EQUAL, similar_expr}),
-          make_pattern(parse_assignment_expr, {lower_expr, te_token::SLASH_EQUAL, similar_expr}),
+        rule_list_t{
+          make_rule(parse_assignment_expr, make_pattern(similar_expr, te_token::EQUAL, similar_expr)),
+          make_rule(parse_assignment_expr, make_pattern(similar_expr, te_token::PLUS_EQUAL, similar_expr)),
+          make_rule(parse_assignment_expr, make_pattern(similar_expr, te_token::MINUS_EQUAL, similar_expr)),
+          make_rule(parse_assignment_expr, make_pattern(similar_expr, te_token::STAR_EQUAL, similar_expr)),
+          make_rule(parse_assignment_expr, make_pattern(similar_expr, te_token::SLASH_EQUAL, similar_expr)),
         },
-        pattern_list_t{
-          make_pattern(parse_sequence_expr, {lower_expr, te_token::COMMA, lower_expr, opt<1>, jmp<-3>}),
+        rule_list_t{
+          make_rule(parse_sequence_expr, make_pattern(similar_expr, te_token::COMMA, lower_expr, opt<1>, jmp<-3>)),
         },
       };
       static_assert(pattern_library.size == precedence_count);
       constexpr int pattern_library_size = sizeof(pattern_library);
+
+      rule_ref_t find_rule_precedence(te_parser_state & s, int precedence, int element_index) {
+        for (int p = precedence; p >= 0; --p) {
+          rule_ref_list_t pattern_list = pattern_library[p];
+          for (int i = 0; i < pattern_list.size; ++i) {
+            rule_ref_t rule = pattern_list[i];
+            if (rule.pattern[element_index].token == s.token) {
+              return rule;
+            }
+          }
+        }
+
+        return {};
+      }
     }
 
-    /*parsed_node_t parse_precedence(te_parser_state & s, int precedence) {
-      pattern_ref_t current_pattern;
-      for (int i = precedence; i >= 0; ++i) {
-        pattern::pattern_ref_list_t plist = pattern::pattern_library[i];
-        for (int j = 0; j < plist.size; ++j) {
-          pattern_ref_t p = plist[j];
+    te_expr * parse_precedence(te_parser_state & s, int precedence);
 
+    te_expr * parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, parsed_sequence_t::node initial) {
+      using namespace rules;
+
+      int sequence_size = rule.pattern.sequence_size;
+      TE_FAIL_COND(sequence_size < 1, return new_error_expr());
+
+      parsed_sequence_t::node nodes[sequence_size];
+      nodes[0] = initial;
+      int node_count = 1;
+
+#define FAIL_RETURN_ERROR_EXPR\
+  do {\
+    te_expr * exprs[node_count];\
+    int exprs_count = 0;\
+    for (int i = node_count - 1; i >= 0; --i) {\
+      if (nodes[i].kind == parsed_sequence_t::node::EXPR) {\
+        exprs[exprs_count++] = nodes[i].expr;\
+      }\
+    }\
+    return new_error_expr(exprs, exprs_count);\
+  } while (false)
+
+#define PUSH_NODE(n)\
+  do {\
+    if (node_count < sequence_size) {\
+      nodes[node_count++] = n;\
+    } else {\
+      te_error_record er(s);\
+      te_printf("internal error: reached max sequence size!\n");\
+      te_print_error(s);\
+      FAIL_RETURN_ERROR_EXPR;\
+    }\
+  } while (false)
+
+      for (int i = 1; i < sequence_size; ++i) {
+        const element_t & e = rule.pattern[i];
+        switch (e.kind) {
+          case rules::element_t::TOKEN: {
+            if (e.token == s.token) {
+              te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
+              te_printf("error: expected %k, got %k!\n", e.token, s.token.kind);
+#endif
+              te_print_error(s);
+              FAIL_RETURN_ERROR_EXPR;
+            }
+            PUSH_NODE(s.token);
+            s.advance();
+          } break;
+          case rules::element_t::TOP_LEVEL_EXPR: {
+            PUSH_NODE(parse_precedence(s, max_precedence + e.offset));
+          } break;
+          case rules::element_t::RELATIVE_PRECEDENCE_EXPR: {
+            PUSH_NODE(parse_precedence(s, rule.precedence + e.offset));
+          } break;
+          case rules::element_t::OPTIONAL: {
+            const element_t & opt_e1 = rule.pattern[i + 1];
+            const element_t & opt_e2 = rule.pattern[i + 1 + e.size];
+            TE_FAIL_COND_MSG(opt_e1.kind == rules::element_t::TOKEN && opt_e2.kind == rules::element_t::TOKEN, FAIL_RETURN_ERROR_EXPR, "internal error: expected at least one token at beginning or end of optional block!\n");
+            if (opt_e1.kind == rules::element_t::TOKEN && opt_e1.token == s.token) {
+              // let it progress
+              continue;
+            } else if (opt_e2.kind == rules::element_t::TOKEN && opt_e2.token == s.token) {
+              // jump to end of optional block
+              i += e.size;
+              continue;
+            } else {
+              te_error_record er(s);
+#ifdef TE_DEBUG_COMPILE
+              te_printf("error: expected %k or %k, got %k!\n", opt_e1.token, opt_e2.token, s.token.kind);
+#endif
+              te_print_error(s);
+              FAIL_RETURN_ERROR_EXPR;
+            }
+          } break;
+          case rules::element_t::JUMP: {
+            i += e.size - 1;
+            continue;
+          } break;
         }
       }
-    }*/
+
+      te_expr * ret = rule.parse(s, {nodes, node_count});
+      if (!ret) {
+        FAIL_RETURN_ERROR_EXPR;
+      }
+
+      return ret;
+
+#undef PUSH_NODE
+#undef FAIL_RETURN_ERROR_EXPR
+    }
+
+    // never returns null
+    te_expr * parse_precedence(te_parser_state & s, int precedence) {
+      using namespace rules;
+
+      rule_ref_t rule = find_rule_precedence(s, precedence, 0);
+      te_expr * expr = parse_precedence_impl(s, rule, s.consume());
+      while (true) {
+        rule = find_rule_precedence(s, precedence, 1);
+        if (!rule.is_valid()) {
+          break;
+        }
+        expr = parse_precedence_impl(s, rule, expr);
+      }
+
+      return expr;
+    }
   }
 }
 
 
 template<typename T, int ChunkSize = 256>
-class te_stack_vector {
-  int32_t size = 0;
-  T data[ChunkSize];
-  te_stack_vector * next = nullptr;
+class te_stack_list_base {
+protected:
+  te_stack_list_base * m_next = nullptr;
+  T m_data[ChunkSize];
+};
 
-  void add_chunk(te_stack_vector & next_chunk) {
-    te_stack_vector *& c = next;
-    while (c) c = c->next;
+template<typename T, int ChunkSize = 256>
+class te_stack_list : protected te_stack_list_base<T, ChunkSize> {
+  using base = te_stack_list_base<T, ChunkSize>;
+
+  int32_t m_size = 0;
+  int32_t m_chunk_count = 1;
+
+public:
+  bool at_limit() {
+    return m_size == (m_chunk_count * ChunkSize);
+  }
+
+  base * get_chunk_at(int i) {
+    base * c = this;
+    while (c && i >= ChunkSize) {
+      i -= ChunkSize;
+      c = c->m_next;
+    }
+    return i < ChunkSize ? c : nullptr;
+  }
+
+  void add_chunk(base & next_chunk) {
+    base *& c = base::m_next;
+    while (c) c = c->m_next;
     c = next_chunk;
+    m_chunk_count++;
+  }
+
+  template<typename T2>
+  void push_back(T2 &&  v) {
+    assert(!at_limit());
+
+    int i = m_size;
+    base * c = this;
+    while (c && i >= ChunkSize) {
+      i -= ChunkSize;
+      c = c->m_next;
+    }
+    assert(i < ChunkSize);
+
+    c->m_data[i] = static_cast<T2>(v);
   }
 
   T & operator[](int32_t i) {
-    if (i < ChunkSize) {
-      assert(i < size);
-      return data[i];
+    base * c = this;
+    while (c && i >= ChunkSize) {
+      i -= ChunkSize;
+      c = c->m_next;
     }
-    return next->operator[](i - ChunkSize);
+
+    assert(i < ChunkSize);
+
+    if (i < ChunkSize) {
+      assert(i < m_size);
+      return base::m_data[i];
+    }
   }
 };
 
 // TODO: finish
-#define init_stack_vector()
+#define expand_stack_list(vec)
+
+// TODO: finish
+#define expand_stack_list(vec)
 
 static te_expr * parse_fn(te_parser_state & s) {
   /* <fn>        =    <typename> <identifier> "(" {<typename> {<identifier>} "," }+ ")" <stmt> */
@@ -3869,13 +4129,16 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
 #ifdef TE_DEBUG_EVAL
 
 #define TE_ERR_FAIL_COND(cond, fail_action, ...)\
+  do {\
     if (cond) {\
         te_printf(__VA_ARGS__);\
         te_printf("\n");\
         fail_action;\
-    } else ((void)0)
+    }\
+  } while(false)
 
 #define TE_CHECK_EXPECTED_TYPE(chk_type, expected, fail_action, ...)\
+  do {\
     if ((chk_type) != (expected)) {\
         te_printf(__VA_ARGS__);\
         te_printf(" expected ");\
@@ -3883,7 +4146,8 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
         te_printf(", got ");\
         te_print_type_name(te_type(chk_type));\
         te_printf("\n");\
-    } else ((void)0)
+    }\
+  } while(false)
 
 #else
 
