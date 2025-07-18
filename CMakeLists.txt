@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD 11)
+
 set(TARGET_PY32 OFF CACHE BOOL "")
+
+#add_subdirectory(concurrent_deferred_rc)
 
 if (TARGET_PY32)
     set(CMAKE_SYSTEM_NAME Generic)
@@ -34,9 +39,6 @@ if (TARGET_PY32)
         set(SIZE arm-none-eabi-size)
     endif ()
     set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
-    
-    set(CMAKE_CXX_STANDARD 17)
-    set(CMAKE_C_STANDARD 11)
 
     project(tesl C CXX ASM)
 
@@ -64,8 +66,6 @@ if (TARGET_PY32)
         ${CMAKE_CURRENT_LIST_DIR}
     )
 
-
-
     target_link_libraries(${PROJECT_NAME}.elf PRIVATE drivers)
 
     target_compile_options(${PROJECT_NAME}.elf
@@ -77,6 +77,8 @@ if (TARGET_PY32)
         -fdata-sections
         -fno-common
         -fmessage-length=0
+        -fno-rtti
+        -fno-exceptions
         $<$<COMPILE_LANGUAGE:ASM>:-xassembler-with-cpp>
     )
 
@@ -100,26 +102,43 @@ if (TARGET_PY32)
         -static
         -lc
         -lm
+        -fno-rtti
+        -fno-exceptions
     )
 
-    target_sources(${PROJECT_NAME}.elf
-        PRIVATE
-        main.cpp tesl.hpp tesl.cpp
-    )
+    target_sources(${PROJECT_NAME}.elf PRIVATE
+        main.cpp
+        tesl_vector.hpp
+        #tesl.hpp tesl.cpp
+        tesl_common.hpp tesl_common.cpp
+        tesl_tokenizer.hpp tesl_tokenizer.cpp
+        #tesl_parser.hpp tesl_parser.cpp
+        tesl_value.hpp tesl_value.cpp)
 else ()
-    set(CMAKE_CXX_STANDARD 20)
-    set(CMAKE_C_STANDARD 11)
-
     project(tesl C CXX)
 
     if (MSVC)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif ()
 
-    add_executable(tesl main.cpp tesl.hpp tesl.cpp)
+    add_executable(tesl
+        main.cpp
+        #tesl.hpp tesl.cpp
+        tesl_common.hpp tesl_common.cpp
+        tesl_hash.hpp tesl_hash.cpp
+        tesl_tokenizer.hpp tesl_tokenizer.cpp
+        #tesl_compiler.hpp tesl_compiler.cpp
+        #tesl_parser.hpp tesl_parser.cpp
+        tesl_stringify.hpp tesl_stringify.cpp
+        tesl_symbol.hpp tesl_symbol.cpp
+        tesl_type.hpp tesl_type.cpp
+        tesl_var.hpp tesl_var.cpp
+        tesl_vector.hpp)
     #add_executable(tesl main.cpp tesl.hpp tesl.cpp printf.h printf.c)
     #target_compile_options(tesl PUBLIC -fsanitize=address -m32)
     #target_link_options(tesl PUBLIC -fsanitize=address -m32)
-    target_compile_options(tesl PUBLIC -fsanitize=address)
-    target_link_options(tesl PUBLIC -fsanitize=address)
+    target_compile_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
+    target_link_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
+
+    #target_link_libraries(tesl PUBLIC concurrent_deferred_rc)
 endif ()

@@ -1,35 +1,7 @@
-/*
- * TESL - Tiny recursive descent GLSL parser and evaluation engine in C
- *
- * Copyright (c) 2015-2020 Lewis Van Winkle
- *
- * http://CodePlea.com
- *
- * This software is provided 'as-is', without any express or implied
- * warranty. In no event will the authors be held liable for any damages
- * arising from the use of this software.
- *
- * Permission is granted to anyone to use this software for any purpose,
- * including commercial applications, and to alter it and redistribute it
- * freely, subject to the following restrictions:
- *
- * 1. The origin of this software must not be misrepresented; you must not
- * claim that you wrote the original software. If you use this software
- * in a product, an acknowledgement in the product documentation would be
- * appreciated but is not required.
- * 2. Altered source versions must be plainly marked as such, and must not be
- * misrepresented as being the original software.
- * 3. This notice may not be removed or altered from any source distribution.
- */
-
-/* COMPILE TIME OPTIONS */
-
-/* Logarithms
-For log = base 10 log do nothing
-For log = natural log uncomment the next line. */
-/* #define TE_NAT_LOG */
-
-//#include <Arduino.h>
+#include "tesl.hpp"
+#include "tesl_common.hpp"
+#include "tesl_value.hpp"
+#include "tesl_parser.hpp"
 
 #ifndef __INT8_TYPE__
 #define __INT8_TYPE__
@@ -55,844 +27,17 @@ For log = natural log uncomment the next line. */
 #include <malloc.h>
 #endif
 
-#include "tesl.hpp"
+using namespace tesl;
 
-/*#ifndef TE_DISABLE_PRINTF
-#if false
-extern "C" {
-  void _putchar(char character) {
-    Serial.write(character);
-  }
-}
-#else
-extern "C" {
-  void _putchar(char character) {
-    fputc(character, stdout);
-  }
-}
-#endif
-#endif*/
+te_program::te_program(te_expr * expr, const ErrorRecord & er) : root_expr(expr), error(er) {}
 
-#ifndef PI
-#define PI 3.14159265358979323846f
-#endif
-
-#ifndef TE_DISABLE_COMPILER_ERRORS
-#define TE_FAIL_COND(cond, action)\
-    if (cond) {\
-        te_printf("error: \'" #cond "\' is true (at %s:%d in %s)\n", __FILE__, __LINE__, __func__);\
-        action;\
-    } else ((void)0)
-#define TE_FAIL_COND_MSG(cond, action, ...)\
-    if (cond) {\
-        te_printf(__VA_ARGS__);\
-        action;\
-    } else ((void)0)
-#else
-#define TE_FAIL_COND(cond, action)\
-    if (cond) {\
-        action;\
-    } else ((void)0)
-#define TE_FAIL_COND_MSG(cond, action, ...)\
-    if (cond) {\
-        action;\
-    } else ((void)0)
-#endif
-
-#define TE_ASSERT(cond) if (!(cond)) { exit(-1); } else ((void)0)
-
-struct te_token {
-  enum kind_t : char {
-    NONE,
-    END,
-    TYPENAME,
-    IDENTIFIER,
-    LITERAL,
-    COMMA,
-    DOT,
-    SEMICOLON,
-    COLON,
-    QUESTION_MARK,
-    OPEN_PAREN,
-    CLOSE_PAREN,
-    OPEN_SQUARE_BRACKET,
-    CLOSE_SQUARE_BRACKET,
-    OPEN_CURLY_BRACKET,
-    CLOSE_CURLY_BRACKET,
-    UNIFORM,
-    IN,
-    OUT,
-    INOUT,
-    IF,
-    ELSE,
-    SWITCH,
-    CASE,
-    FOR,
-    WHILE,
-    DO,
-    BREAK,
-    CONTINUE,
-    RETURN,
-    DISCARD,
-    AND,
-    AND_AND,
-    CARET,
-    CARET_CARET,
-    PIPE,
-    PIPE_PIPE,
-    EQUAL,
-    EQUAL_EQUAL,
-    BANG,
-    BANG_EQUAL,
-    LESS,
-    LESS_LESS,
-    LESS_EQUAL,
-    GREATER,
-    GREATER_GREATER,
-    GREATER_EQUAL,
-    PLUS,
-    PLUS_PLUS,
-    PLUS_EQUAL,
-    MINUS,
-    MINUS_MINUS,
-    MINUS_EQUAL,
-    STAR,
-    STAR_EQUAL,
-    SLASH,
-    SLASH_EQUAL,
-    PERCENT,
-    PERCENT_EQUAL,
-  } kind = NONE;
-  te_type type = TE_ERROR;
-  te_strview name;
-  union {
-    te_int int_value = 0;
-    te_float float_value;
-  };
-
-  bool operator==(kind_t k) { return kind == k; }
-  bool operator!=(kind_t k) { return kind != k; }
-
-  bool operator==(te_token t) = delete;
-  bool operator!=(te_token t) = delete;
-
-  te_token() = default;
-  
-  te_token & operator=(const te_token &) = default;
-  te_token & operator=(te_token &&) = default;
-  te_token(const te_token &) = default;
-  te_token(te_token &&) = default;
-};
-
-bool operator==(te_token::kind_t k, te_token tok) { return k == tok.kind; }
-bool operator!=(te_token::kind_t k, te_token tok) { return k != tok.kind; }
-
-/*
-#ifndef TE_DISABLE_PRINTF
-extern "C" {
-#define OUT_STR_(str) for (int i = 0; i < (sizeof(str) - 1); ++i) { out(str[i], buffer, idx++, maxlen); }
-#define OUT_STRN_(str, n) for (int i = 0; i < (n); ++i) { out(str[i], buffer, idx++, maxlen); }
-#define OUT_CHR_(c) out(c, buffer, idx++, maxlen)
-#define OUT_END_ return idx
-#define CASE_(ty, str) case ty: OUT_STR_(str); OUT_END_;
-
-  int _handle_extra_vsnprintf_spec_token_kind(out_fct_type out, void* buffer, size_t idx, size_t maxlen, te_token::kind_t tok) {
-    static const char * hex_chars = "0123456789abcdef";
-
-    switch (tok) {
-      CASE_(te_token::NONE, "<none>")
-      CASE_(te_token::END, "<end>")
-      CASE_(te_token::TYPENAME, "<typename>")
-      CASE_(te_token::IDENTIFIER, "<identifier>")
-      CASE_(te_token::LITERAL, "<literal>")
-      CASE_(te_token::COMMA, ",")
-      CASE_(te_token::DOT, ".")
-      CASE_(te_token::SEMICOLON, ";")
-      CASE_(te_token::COLON, ":")
-      CASE_(te_token::QUESTION_MARK, "?")
-      CASE_(te_token::OPEN_PAREN, "(")
-      CASE_(te_token::CLOSE_PAREN, ")")
-      CASE_(te_token::OPEN_SQUARE_BRACKET, "[")
-      CASE_(te_token::CLOSE_SQUARE_BRACKET, "]")
-      CASE_(te_token::OPEN_CURLY_BRACKET, "{")
-      CASE_(te_token::CLOSE_CURLY_BRACKET, "}")
-      CASE_(te_token::UNIFORM, "uniform")
-      CASE_(te_token::IN, "in")
-      CASE_(te_token::OUT, "out")
-      CASE_(te_token::INOUT, "inout")
-      CASE_(te_token::IF, "if")
-      CASE_(te_token::ELSE, "else")
-      CASE_(te_token::SWITCH, "switch")
-      CASE_(te_token::CASE, "case")
-      CASE_(te_token::FOR, "for")
-      CASE_(te_token::WHILE, "while")
-      CASE_(te_token::DO, "do")
-      CASE_(te_token::BREAK, "break")
-      CASE_(te_token::CONTINUE, "continue")
-      CASE_(te_token::RETURN, "return")
-      CASE_(te_token::DISCARD, "discard")
-      CASE_(te_token::AND, "&")
-      CASE_(te_token::AND_AND, "&&")
-      CASE_(te_token::CARET, "^")
-      CASE_(te_token::CARET_CARET, "^^")
-      CASE_(te_token::PIPE, "|")
-      CASE_(te_token::PIPE_PIPE, "||")
-      CASE_(te_token::EQUAL, "=")
-      CASE_(te_token::EQUAL_EQUAL, "==")
-      CASE_(te_token::BANG, "!")
-      CASE_(te_token::BANG_EQUAL, "!=")
-      CASE_(te_token::LESS, "<")
-      CASE_(te_token::LESS_LESS, "<<")
-      CASE_(te_token::LESS_EQUAL, "<=")
-      CASE_(te_token::GREATER, ">")
-      CASE_(te_token::GREATER_GREATER, ">>")
-      CASE_(te_token::GREATER_EQUAL, ">=")
-      CASE_(te_token::PLUS, "+")
-      CASE_(te_token::PLUS_PLUS, "++")
-      CASE_(te_token::PLUS_EQUAL, "+=")
-      CASE_(te_token::MINUS, "-")
-      CASE_(te_token::MINUS_MINUS, "--")
-      CASE_(te_token::MINUS_EQUAL, "-=")
-      CASE_(te_token::STAR, "*")
-      CASE_(te_token::STAR_EQUAL, "*=")
-      CASE_(te_token::SLASH, "/")
-      CASE_(te_token::SLASH_EQUAL, "/=")
-      CASE_(te_token::PERCENT, "%")
-      CASE_(te_token::PERCENT_EQUAL, "%=")
-    }
-
-    OUT_STR_("<unknown_token:0x");
-    OUT_CHR_(hex_chars[(tok >> 4) & 0xf]);
-    OUT_CHR_(hex_chars[(tok) & 0xf]);
-    OUT_CHR_('>');
-    OUT_END_;
-  }
-
-  int _handle_extra_vsnprintf_spec_type(out_fct_type out, void* buffer, size_t idx, size_t maxlen, te_type type) {
-    static const char * hex_chars = "0123456789abcdef";
-
-    switch (type) {
-      CASE_(TE_ERROR, "<error_type>")
-      CASE_(TE_INT_REF, "int&")
-      CASE_(TE_FLOAT_REF, "float&")
-      CASE_(TE_VEC2_REF, "vec2&")
-      CASE_(TE_VEC3_REF, "vec3&")
-      CASE_(TE_VEC4_REF, "vec4&")
-      CASE_(TE_MAT2_REF, "mat2&")
-      CASE_(TE_MAT3_REF, "mat3&")
-      CASE_(TE_MAT4_REF, "mat4&")
-      CASE_(TE_STR_REF, "str&")
-      CASE_(TE_FUNCTION, "<function_type>")
-      CASE_(TE_NULL, "void")
-      CASE_(TE_INT, "int")
-      CASE_(TE_FLOAT, "float")
-      CASE_(TE_VEC2, "vec2")
-      CASE_(TE_VEC3, "vec3")
-      CASE_(TE_VEC4, "vec4")
-      CASE_(TE_MAT2, "mat2")
-      CASE_(TE_MAT3, "mat3")
-      CASE_(TE_MAT4, "mat4")
-      CASE_(TE_STR, "str")
-    }
-
-    OUT_STR_("<unknown_type:0x");
-    OUT_CHR_(hex_chars[(type >> 4) & 0xf]);
-    OUT_CHR_(hex_chars[(type) & 0xf]);
-    OUT_CHR_('>');
-    OUT_END_;
-  }
-
-  int _handle_extra_vsnprintf_spec_token(out_fct_type out, void* buffer, size_t idx, size_t maxlen, te_token tok) {
-    switch (tok.kind) {
-      case te_token::NONE:
-      case te_token::END:
-        return _handle_extra_vsnprintf_spec_token_kind(out, buffer, idx, maxlen, tok.kind);
-      case te_token::TYPENAME:
-        OUT_STR_("typename '");
-        idx = _handle_extra_vsnprintf_spec_type(out, buffer, idx, maxlen, tok.type);
-        OUT_CHR_('\'');
-        OUT_END_;
-      case te_token::IDENTIFIER:
-        OUT_STR_("identifier '");
-        OUT_STRN_(tok.name.ptr, tok.name.len());
-        OUT_CHR_('\'');
-        OUT_END_;
-      case te_token::LITERAL:
-        switch (tok.type) {
-          case TE_FLOAT:
-            OUT_STR_("literal float '");
-            te_printf("%g", tok.float_value);
-            OUT_CHR_('\'');
-            OUT_END_;
-          case TE_INT:
-            OUT_STR_("literal int '");
-            te_printf("%d", tok.int_value);
-            OUT_CHR_('\'');
-            OUT_END_;
-          case TE_STR:
-            OUT_STR_("literal str ");
-            OUT_STRN_(tok.name.ptr, tok.name.len());
-            OUT_END_;
-          case TE_ERROR:
-          case TE_FLOAT_REF:
-          case TE_VEC2_REF:
-          case TE_VEC3_REF:
-          case TE_VEC4_REF:
-          case TE_INT_REF:
-          case TE_MAT2_REF:
-          case TE_MAT3_REF:
-          case TE_MAT4_REF:
-          case TE_STR_REF:
-          case TE_FUNCTION:
-          case TE_CONSTANT:
-          case TE_VEC2:
-          case TE_VEC3:
-          case TE_VEC4:
-          case TE_MAT2:
-          case TE_MAT3:
-          case TE_MAT4:
-            OUT_STR_("<literal:invalid-type>");
-            OUT_END_;
-        }
-      case te_token::COMMA:
-      case te_token::DOT:
-      case te_token::SEMICOLON:
-      case te_token::COLON:
-      case te_token::QUESTION_MARK:
-      case te_token::OPEN_PAREN:
-      case te_token::CLOSE_PAREN:
-      case te_token::OPEN_SQUARE_BRACKET:
-      case te_token::CLOSE_SQUARE_BRACKET:
-      case te_token::OPEN_CURLY_BRACKET:
-      case te_token::CLOSE_CURLY_BRACKET:
-      case te_token::UNIFORM:
-      case te_token::IN:
-      case te_token::OUT:
-      case te_token::INOUT:
-      case te_token::IF:
-      case te_token::ELSE:
-      case te_token::SWITCH:
-      case te_token::CASE:
-      case te_token::FOR:
-      case te_token::WHILE:
-      case te_token::DO:
-      case te_token::BREAK:
-      case te_token::CONTINUE:
-      case te_token::RETURN:
-      case te_token::DISCARD:
-      case te_token::AND:
-      case te_token::AND_AND:
-      case te_token::CARET:
-      case te_token::CARET_CARET:
-      case te_token::PIPE:
-      case te_token::PIPE_PIPE:
-      case te_token::EQUAL:
-      case te_token::EQUAL_EQUAL:
-      case te_token::BANG:
-      case te_token::BANG_EQUAL:
-      case te_token::LESS:
-      case te_token::LESS_LESS:
-      case te_token::LESS_EQUAL:
-      case te_token::GREATER:
-      case te_token::GREATER_GREATER:
-      case te_token::GREATER_EQUAL:
-      case te_token::PLUS:
-      case te_token::PLUS_PLUS:
-      case te_token::PLUS_EQUAL:
-      case te_token::MINUS:
-      case te_token::MINUS_MINUS:
-      case te_token::MINUS_EQUAL:
-      case te_token::STAR:
-      case te_token::STAR_EQUAL:
-      case te_token::SLASH:
-      case te_token::SLASH_EQUAL:
-      case te_token::PERCENT:
-      case te_token::PERCENT_EQUAL:
-        OUT_CHR_('\'');
-        idx = _handle_extra_vsnprintf_spec_token_kind(out, buffer, idx, maxlen, tok.kind);
-        OUT_CHR_('\'');
-        OUT_END_;
-    }
-
-    OUT_END_;
-  }
-
-  int _handle_extra_vsnprintf_spec(char spec, out_fct_type out, void* buffer, size_t idx, size_t maxlen, va_list *va) {
-    static const char * hex_chars = "0123456789abcdef";
-
-    switch (spec) {
-      case 'y':
-        return _handle_extra_vsnprintf_spec_type(out, buffer, idx, maxlen, static_cast<te_type>(va_arg(*va, int)));
-      case 'K':
-        return _handle_extra_vsnprintf_spec_token(out, buffer, idx, maxlen, va_arg(*va, te_token));
-      case 'k':
-        return _handle_extra_vsnprintf_spec_token_kind(out, buffer, idx, maxlen, static_cast<te_token::kind_t>(va_arg(*va, int)));
-      default:
-        OUT_CHR_(spec);
-        OUT_END_;
-    }
-#undef OUT_STR_
-  }
-}
-#endif
-
-void te_print(te_type type) {
-  te_printf("%y", type);
-}
-
-void te_print(te_token tok) {
-  te_printf("%K", tok);
-}
-
-void te_print(te_token::kind_t tok) {
-  te_printf("%k", tok);
-}
-*/
-
-#define OUT_STR_(str) te_printf(str)
-#define OUT_STRN_(str, n) te_printf("%.*s", n, str)
-#define OUT_CHR_(c)\
-  do {\
-    char tmp[2] = {c, '\0'};\
-    te_printf(tmp);\
-  } while (false)
-#define OUT_END_ return;
-#define CASE_(ty, str) case ty: OUT_STR_(str); OUT_END_;
-
-void te_print(te_token::kind_t tok) {
-#ifndef TE_DISABLE_PRINTF
-  static const char * hex_chars = "0123456789abcdef";
-
-  switch (tok) {
-    CASE_(te_token::NONE, "<none>")
-    CASE_(te_token::END, "<end>")
-    CASE_(te_token::TYPENAME, "<typename>")
-    CASE_(te_token::IDENTIFIER, "<identifier>")
-    CASE_(te_token::LITERAL, "<literal>")
-    CASE_(te_token::COMMA, ",")
-    CASE_(te_token::DOT, ".")
-    CASE_(te_token::SEMICOLON, ";")
-    CASE_(te_token::COLON, ":")
-    CASE_(te_token::QUESTION_MARK, "?")
-    CASE_(te_token::OPEN_PAREN, "(")
-    CASE_(te_token::CLOSE_PAREN, ")")
-    CASE_(te_token::OPEN_SQUARE_BRACKET, "[")
-    CASE_(te_token::CLOSE_SQUARE_BRACKET, "]")
-    CASE_(te_token::OPEN_CURLY_BRACKET, "{")
-    CASE_(te_token::CLOSE_CURLY_BRACKET, "}")
-    CASE_(te_token::UNIFORM, "uniform")
-    CASE_(te_token::IN, "in")
-    CASE_(te_token::OUT, "out")
-    CASE_(te_token::INOUT, "inout")
-    CASE_(te_token::IF, "if")
-    CASE_(te_token::ELSE, "else")
-    CASE_(te_token::SWITCH, "switch")
-    CASE_(te_token::CASE, "case")
-    CASE_(te_token::FOR, "for")
-    CASE_(te_token::WHILE, "while")
-    CASE_(te_token::DO, "do")
-    CASE_(te_token::BREAK, "break")
-    CASE_(te_token::CONTINUE, "continue")
-    CASE_(te_token::RETURN, "return")
-    CASE_(te_token::DISCARD, "discard")
-    CASE_(te_token::AND, "&")
-    CASE_(te_token::AND_AND, "&&")
-    CASE_(te_token::CARET, "^")
-    CASE_(te_token::CARET_CARET, "^^")
-    CASE_(te_token::PIPE, "|")
-    CASE_(te_token::PIPE_PIPE, "||")
-    CASE_(te_token::EQUAL, "=")
-    CASE_(te_token::EQUAL_EQUAL, "==")
-    CASE_(te_token::BANG, "!")
-    CASE_(te_token::BANG_EQUAL, "!=")
-    CASE_(te_token::LESS, "<")
-    CASE_(te_token::LESS_LESS, "<<")
-    CASE_(te_token::LESS_EQUAL, "<=")
-    CASE_(te_token::GREATER, ">")
-    CASE_(te_token::GREATER_GREATER, ">>")
-    CASE_(te_token::GREATER_EQUAL, ">=")
-    CASE_(te_token::PLUS, "+")
-    CASE_(te_token::PLUS_PLUS, "++")
-    CASE_(te_token::PLUS_EQUAL, "+=")
-    CASE_(te_token::MINUS, "-")
-    CASE_(te_token::MINUS_MINUS, "--")
-    CASE_(te_token::MINUS_EQUAL, "-=")
-    CASE_(te_token::STAR, "*")
-    CASE_(te_token::STAR_EQUAL, "*=")
-    CASE_(te_token::SLASH, "/")
-    CASE_(te_token::SLASH_EQUAL, "/=")
-    CASE_(te_token::PERCENT, "%")
-    CASE_(te_token::PERCENT_EQUAL, "%=")
-  }
-
-  OUT_STR_("<unknown_token:0x");
-  char tmp[] = {hex_chars[(tok >> 4) & 0xf], hex_chars[(tok) & 0xf]};
-  OUT_STRN_(tmp, 2);
-  OUT_STR_(">");
-  OUT_END_;
-#endif
-}
-
-void te_print(te_type type) {
-#ifndef TE_DISABLE_PRINTF
-  static const char * hex_chars = "0123456789abcdef";
-
-  switch (type) {
-    CASE_(TE_ERROR, "<error_type>")
-    CASE_(TE_INT_REF, "int&")
-    CASE_(TE_FLOAT_REF, "float&")
-    CASE_(TE_VEC2_REF, "vec2&")
-    CASE_(TE_VEC3_REF, "vec3&")
-    CASE_(TE_VEC4_REF, "vec4&")
-    CASE_(TE_MAT2_REF, "mat2&")
-    CASE_(TE_MAT3_REF, "mat3&")
-    CASE_(TE_MAT4_REF, "mat4&")
-    CASE_(TE_STR_REF, "str&")
-    CASE_(TE_FUNCTION, "<function_type>")
-    CASE_(TE_NULL, "void")
-    CASE_(TE_INT, "int")
-    CASE_(TE_FLOAT, "float")
-    CASE_(TE_VEC2, "vec2")
-    CASE_(TE_VEC3, "vec3")
-    CASE_(TE_VEC4, "vec4")
-    CASE_(TE_MAT2, "mat2")
-    CASE_(TE_MAT3, "mat3")
-    CASE_(TE_MAT4, "mat4")
-    CASE_(TE_STR, "str")
-  }
-
-  OUT_STR_("<unknown_type:0x");
-  OUT_CHR_(hex_chars[(type >> 4) & 0xf]);
-  OUT_CHR_(hex_chars[(type) & 0xf]);
-  OUT_STR_(">");
-  OUT_END_;
-#endif
-}
-
-void te_print(te_token tok) {
-#ifndef TE_DISABLE_PRINTF
-  switch (tok.kind) {
-    case te_token::NONE:
-    case te_token::END:
-      te_print(tok.kind);
-    case te_token::TYPENAME:
-      OUT_STR_("typename '");
-      te_print(tok.type);
-      OUT_STR_("'");
-      OUT_END_;
-    case te_token::IDENTIFIER:
-      OUT_STR_("identifier '");
-      OUT_STRN_(tok.name.ptr, tok.name.len());
-      OUT_STR_("'");
-      OUT_END_;
-    case te_token::LITERAL:
-      switch (tok.type) {
-        case TE_FLOAT:
-          OUT_STR_("literal float '");
-          te_printf("%g", tok.float_value);
-          OUT_STR_("'");
-          OUT_END_;
-        case TE_INT:
-          OUT_STR_("literal int '");
-          te_printf("%d", tok.int_value);
-          OUT_STR_("'");
-          OUT_END_;
-        case TE_STR:
-          OUT_STR_("literal str ");
-          OUT_STRN_(tok.name.ptr, tok.name.len());
-          OUT_END_;
-        case TE_ERROR:
-        case TE_FLOAT_REF:
-        case TE_VEC2_REF:
-        case TE_VEC3_REF:
-        case TE_VEC4_REF:
-        case TE_INT_REF:
-        case TE_MAT2_REF:
-        case TE_MAT3_REF:
-        case TE_MAT4_REF:
-        case TE_STR_REF:
-        case TE_FUNCTION:
-        case TE_CONSTANT:
-        case TE_VEC2:
-        case TE_VEC3:
-        case TE_VEC4:
-        case TE_MAT2:
-        case TE_MAT3:
-        case TE_MAT4:
-          OUT_STR_("<literal:invalid-type>");
-          OUT_END_;
-      }
-    case te_token::COMMA:
-    case te_token::DOT:
-    case te_token::SEMICOLON:
-    case te_token::COLON:
-    case te_token::QUESTION_MARK:
-    case te_token::OPEN_PAREN:
-    case te_token::CLOSE_PAREN:
-    case te_token::OPEN_SQUARE_BRACKET:
-    case te_token::CLOSE_SQUARE_BRACKET:
-    case te_token::OPEN_CURLY_BRACKET:
-    case te_token::CLOSE_CURLY_BRACKET:
-    case te_token::UNIFORM:
-    case te_token::IN:
-    case te_token::OUT:
-    case te_token::INOUT:
-    case te_token::IF:
-    case te_token::ELSE:
-    case te_token::SWITCH:
-    case te_token::CASE:
-    case te_token::FOR:
-    case te_token::WHILE:
-    case te_token::DO:
-    case te_token::BREAK:
-    case te_token::CONTINUE:
-    case te_token::RETURN:
-    case te_token::DISCARD:
-    case te_token::AND:
-    case te_token::AND_AND:
-    case te_token::CARET:
-    case te_token::CARET_CARET:
-    case te_token::PIPE:
-    case te_token::PIPE_PIPE:
-    case te_token::EQUAL:
-    case te_token::EQUAL_EQUAL:
-    case te_token::BANG:
-    case te_token::BANG_EQUAL:
-    case te_token::LESS:
-    case te_token::LESS_LESS:
-    case te_token::LESS_EQUAL:
-    case te_token::GREATER:
-    case te_token::GREATER_GREATER:
-    case te_token::GREATER_EQUAL:
-    case te_token::PLUS:
-    case te_token::PLUS_PLUS:
-    case te_token::PLUS_EQUAL:
-    case te_token::MINUS:
-    case te_token::MINUS_MINUS:
-    case te_token::MINUS_EQUAL:
-    case te_token::STAR:
-    case te_token::STAR_EQUAL:
-    case te_token::SLASH:
-    case te_token::SLASH_EQUAL:
-    case te_token::PERCENT:
-    case te_token::PERCENT_EQUAL:
-      OUT_STR_("'");
-      te_print(tok.kind);
-      OUT_STR_("'");
-      OUT_END_;
-  }
-
-  OUT_END_;
-#endif
-}
-
-#undef OUT_STR_
-#undef OUT_STRN_
-#undef OUT_CHR_
-#undef OUT_END_
-#undef CASE_
-
-void te_print(const char * str) {
-#ifndef TE_DISABLE_PRINTF
-  te_printf(str);
-#endif
-}
-
-void te_print(te_int num) {
-#ifndef TE_DISABLE_PRINTF
-  te_printf("%d", num);
-#endif
-}
-
-void te_print(te_float num) {
-#ifndef TE_DISABLE_PRINTF
-  te_printf("%g", num);
-#endif
-}
-
-void te_print(const te_strview & str) {
-#ifndef TE_DISABLE_PRINTF
-  te_printf("%.*s", str.len(), str.ptr);
-#endif
-}
-
-struct te_parser_state {
-  struct local_var_t {
-    const char * name_ptr = nullptr;
-    uint8_t name_length = 0;
-    te_type type = TE_ERROR;
-    uint16_t offset = 0;
-
-    te_strview get_name() const { return {name_ptr, static_cast<int>(name_length)}; }
-
-    local_var_t(te_parser_state & s, te_strview name, te_type p_type, uint16_t p_offset);
-    local_var_t() = default;
-  };
-
-  struct var_ref {
-    // TODO: add local constants
-    enum kind_t {
-      INVALID,
-      LOCAL_VAR,
-      GLOBAL_CONST,
-      GLOBAL_VAR,
-    };
-
-    kind_t kind;
-    union {
-      void * _ptr;
-      local_var_t * local_var = nullptr;
-      te_variable * global_var;
-      const te_variable * global_const;
-    };
-
-    bool is_valid() {
-      return kind != INVALID && _ptr;
-    }
-
-    bool is_function() {
-      return get_type() == TE_FUNCTION;
-    }
-    
-    te_strview get_name() const {
-      switch (kind) {
-        case INVALID:
-          return {};
-        case LOCAL_VAR:
-          return local_var->get_name();
-        case GLOBAL_CONST:
-          return global_const->get_name();
-        case GLOBAL_VAR:
-          return global_var->get_name();
-      }
-
-      return {};
-    }
-    te_type get_type() const {
-      switch (kind) {
-        case INVALID:
-          return TE_ERROR;
-        case LOCAL_VAR:
-          return local_var->type;
-        case GLOBAL_CONST:
-          return global_const->type;
-        case GLOBAL_VAR:
-          return global_var->type;
-      }
-
-      return TE_ERROR;
-    }
-    te_value get_value() const {
-      switch (kind) {
-        case INVALID:
-          return {};
-        case LOCAL_VAR:
-          return {};
-        case GLOBAL_CONST:
-          return global_const->value;
-        case GLOBAL_VAR:
-          return global_var->value;
-      }
-
-      return {};
-    }
-    te_fn_obj get_function() const {
-      switch (kind) {
-        case INVALID:
-          return {};
-        case LOCAL_VAR:
-          return {};
-        case GLOBAL_CONST:
-          return global_const->fn;
-        case GLOBAL_VAR:
-          return global_var->fn;
-      }
-
-      return {};
-    }
-    te_expr * new_ref_expr(te_parser_state & s);
-
-    var_ref(const te_variable & p_global_const) : kind(GLOBAL_CONST), global_const(&p_global_const) {}
-    var_ref(te_variable & p_global_var) : kind(GLOBAL_VAR), global_var(&p_global_var) {}
-    var_ref(local_var_t & p_local_var) : kind(LOCAL_VAR), local_var(&p_local_var) {}
-    var_ref() : kind(INVALID) {}
-  };
-
-  te_parser_state * parent = nullptr;
-  te_error_record *error = nullptr;
-  te_error_record prev_error;
-  const char * program = nullptr;
-  const char * line_start = nullptr;
-  const char * _next_line_start = nullptr;
-  int line_num = 1;
-  te_token next_token;
-  te_token curr_token;
-  te_token prev_token;
-  bool parse_error = false;
-
-  te_type return_type = TE_NULL;
-  int32_t stmt_count = 0;
-
-  te_variable * global_vars = nullptr;
-  int32_t global_var_count = 0;
-  int32_t stack_size = 0;
-  int32_t stack_offset = 0;
-  int32_t var_count = 0;
-  local_var_t vars[TE_MAX_VAR_COUNT];
-  te_op * stmts[TE_MAX_STMT_COUNT];
-
-  void advance();
-
-  te_token consume() {
-    te_token ret = curr_token;
-    advance();
-    return ret;
-  }
-
-  void print_error_location() const;
-};
-
-void te_error_record::reset() {
-  if (state) {
-    line_start = state->line_start;
-    point = start = state->curr_token.name.ptr;
-    end = state->curr_token.name.end;
-    line_num = state->line_num;
-  } else {
-    line_start = nullptr;
-    start = nullptr;
-    point = nullptr;
-    end = nullptr;
-    line_num = 0;
-  }
-}
-
-te_error_record::te_error_record(te_parser_state & s) : state(&s), prev(s.error) {
-  line_start = s.line_start;
-  point = start = s.curr_token.name.ptr;
-  end = s.curr_token.name.end;
-  line_num = s.line_num;
-  s.error = this;
-}
-
-te_error_record::~te_error_record() {
-  if (state) {
-    state->error = prev;
-    state->prev_error = *this;
-    state->prev_error.state = nullptr;
-    state->prev_error.prev = nullptr;
-  }
-}
-
-te_program::te_program(te_expr * expr, const te_error_record & er) : root_expr(expr), error(er) {}
-
-te_program::te_program(te_program && other) : root_expr(other.root_expr), error(te::move(other.error)) {
+te_program::te_program(te_program && other) : root_expr(other.root_expr), error(MOV(other.error)) {
   other.root_expr = nullptr;
 }
 
 te_program & te_program::operator=(te_program && other) {
   root_expr = other.root_expr;
-  error = static_cast<te_error_record &&>(other.error);
+  error = static_cast<ErrorRecord &&>(other.error);
   other.root_expr = nullptr;
   return *this;
 }
@@ -901,74 +46,13 @@ te_program::~te_program() {
   te_free(root_expr);
 }
 
-#ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#endif
-
-static void te_print_error(int line_num, const char * line_start, const char * start, const char * point, const char * const end) {
-#ifdef TE_DISABLE_PRINTF
-  const char error_point_highlight_str[] = "^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~>";
-  const int error_point_highlight_str_size = sizeof(error_point_highlight_str) - 1;
-  const char * error_highlight_str = error_point_highlight_str + 1;
-  const int error_highlight_str_size = error_point_highlight_str_size - 1;
-  const int error_highlight_start_str_size = error_highlight_str_size - 1;
-  const char * line_end = line_start;
-  do {
-    while (*line_end != '\0' && *line_end != '\r' && *line_end != '\n') line_end++;
-    const int line_length = line_end - line_start;
-    te_printf("%4d | %.*s\n", line_num, line_length, line_start);
-    if (start <= line_end && end > line_start) {
-      const char * highlight_start = MAX(start, line_start);
-      const char * highlight_end = MIN(line_end, end);
-      te_printf("     | %*s", highlight_start - line_start, "");
-      if (line_start <= point && point <= line_end) {
-        int highlight_begin_length = point - highlight_start;
-        const int highlight_end_length = MAX(1, highlight_end - point);
-        for (; highlight_begin_length > 0; highlight_begin_length -= error_highlight_start_str_size)
-          te_printf("%.*s", MIN(highlight_begin_length, error_highlight_start_str_size), error_highlight_str);
-        te_printf("%.*s\n", MIN(highlight_end_length, error_point_highlight_str_size), error_point_highlight_str);
-      } else {
-        const int highlight_length = highlight_end - highlight_start;
-        te_printf("%.*s\n", MIN(highlight_length, error_highlight_str_size), error_highlight_str);
-      }
-    }
-    if (*line_end == '\0') {
-      break;
-    } else if (line_end[0] == '\r' && line_end[1] == '\n') {
-      line_start = line_end + 2;
-    } else {
-      line_start = line_end + 1;
-    }
-    line_end = line_start;
-    line_num++;
-  } while (line_end < end);
-#endif
-}
-
-template<typename ... Ts>
-static void _te_compile_error(te_parser_state & s, Ts && ... vs) {
-  s.parse_error = true;
-  (te_print(vs), ...);
-  te_print("\n");
-  s.print_error_location();
-}
-
 template<typename ... Ts>
 static void _te_value_error(Ts && ... vs) {
   (te_print(vs), ...);
   te_print("\n");
 }
 
-#ifdef TE_DEBUG_COMPILE
-#define te_compile_error(s, ...) _te_compile_error(s, __VA_ARGS__)
-#else
-#define te_compile_error(s, ...) _te_compile_error(s)
-#endif
-
-#ifdef TE_DEBUG_VALUE
+#ifdef TESL_DEBUG_VALUE
 #define te_value_error(...) _te_value_error(__VA_ARGS__)
 #else
 #define te_value_error(...) _te_value_error()
@@ -980,25 +64,17 @@ static void te_make_error(te_parser_state & s) {
 }
 
 
-void te_error_record::print() const {
-  te_print_error(line_num, line_start, start, point, end);
+void ErrorRecord::print() const {
+  tesl_print_error(line_num, line_start, start, point, end);
 }
 
-void te_parser_state::print_error_location() const {
-  if (error != nullptr) {
-    error->print();
-  } else {
-    te_print_error(line_num, line_start, curr_token.name.ptr, curr_token.name.ptr, curr_token.name.end);
-  }
-}
-
-te_parser_state::local_var_t::local_var_t(te_parser_state & s, te_strview name, te_type p_type, uint16_t p_offset) {
+te_parser_state::local_var_t::local_var_t(te_parser_state & s, StrViewT name, Type p_type, uint16_t p_offset) {
   type = p_type;
   offset = p_offset;
 
   int32_t len = name.len();
   if (len > 0xff) {
-    te_compile_error(s, "error: var name '", te_strview{name.ptr, 24}, "...' too long! (max length: ", 0xff, ")");
+    te_compile_error(s, "error: var name '", StrViewT{name.ptr, 24}, "...' too long! (max length: ", 0xff, ")");
     return;
   } else if (len < 0) {
     te_compile_error(s, "internal error: invalid var name length: ", len);
@@ -1009,8 +85,8 @@ te_parser_state::local_var_t::local_var_t(te_parser_state & s, te_strview name, 
   name_length = len;
 }
 
-te_parser_state::local_var_t *te_stack_allocate_var(te_parser_state & s, te_strview str, te_type type) {
-  int8_t var_size = te_size_of(type);
+te_parser_state::local_var_t *te_stack_allocate_var(te_parser_state & s, StrViewT str, Type type) {
+  int8_t var_size = sizeof_type(type);
   uint16_t offset = s.stack_offset;
   te_parser_state::local_var_t &var = s.vars[s.var_count];
   var = {s, str, type, offset};
@@ -1029,7 +105,7 @@ void te_end_scope(te_parser_state & s, int32_t prev_stack_size) {
     s.var_count--;
     s.stack_offset = s.vars[s.var_count].offset;
     if (s.stack_offset < prev_stack_size) {
-      te_error_record er{s};
+      ErrorRecord er{s};
       te_compile_error(s, "internal error: stack var deallocation mismatch!");
       return;
     }
@@ -1078,7 +154,7 @@ constexpr int te_size_of_op(const te_op * op) {
       return sizeof(te_return_op);
   }
   
-  te_printf("internal error: invalid opcode %02x", op->opcode);
+  tesl_printf("internal error: invalid opcode %02x", op->opcode);
   return -1;
 }
 
@@ -1106,7 +182,7 @@ constexpr int te_is_expr(const te_op * op) {
       return false;
   }
   
-  te_printf("internal error: invalid opcode %02x", op->opcode);
+  tesl_printf("internal error: invalid opcode %02x", op->opcode);
   return -1;
 }
 
@@ -1116,7 +192,7 @@ static te_expr * new_error_expr_v(te_op * const * sources, int source_count) {
   const int size = sizeof(te_error_expr) + sources_size;
   te_error_expr * ret = static_cast<te_error_expr *>(malloc(size));
   ret->opcode = TE_OP_ERROR;
-  ret->type = TE_ERROR;
+  ret->type = TYPE_ERROR;
   ret->source_count = source_count;
   memcpy(ret->sources, sources, sources_size);
   return ret;
@@ -1132,8 +208,8 @@ static te_expr * new_error_expr() {
   return new_error_expr_v(nullptr, 0);
 }
 
-static te_expr * new_value_expr(te_type type, const te_value & value) {
-  const int value_size = te_size_of(type);
+static te_expr * new_value_expr(Type type, const te_value & value) {
+  const int value_size = sizeof_type(type);
   const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
   te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
@@ -1143,9 +219,9 @@ static te_expr * new_value_expr(te_type type, const te_value & value) {
   return ret;
 }
 
-static te_expr * new_value_ref_expr(te_type type, te_value & value) {
-  te_type ref_type = te_type(type & ~TE_CONSTANT);
-  const int value_size = te_size_of(ref_type);
+static te_expr * new_value_ref_expr(Type type, te_value & value) {
+  Type ref_type = Type(type & ~TYPE_FLAG_CONSTANT);
+  const int value_size = sizeof_type(ref_type);
   const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
   te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
@@ -1155,9 +231,9 @@ static te_expr * new_value_ref_expr(te_type type, te_value & value) {
   return ret;
 }
 
-static te_expr * new_int_literal_expr(const te_int & value) {
-  const te_type type = TE_INT;
-  const int value_size = te_size_of(type);
+static te_expr * new_int_literal_expr(const IntT & value) {
+  const Type type = TYPE_INT_VAL;
+  const int value_size = sizeof_type(type);
   const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
   te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
@@ -1167,9 +243,9 @@ static te_expr * new_int_literal_expr(const te_int & value) {
   return ret;
 }
 
-static te_expr * new_float_literal_expr(const te_float & value) {
-  const te_type type = TE_FLOAT;
-  const int value_size = te_size_of(type);
+static te_expr * new_float_literal_expr(const FloatT & value) {
+  const Type type = TYPE_FLOAT_VAL;
+  const int value_size = sizeof_type(type);
   const int size = sizeof(te_value_expr) - sizeof(te_value) + value_size;
   te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
@@ -1179,14 +255,14 @@ static te_expr * new_float_literal_expr(const te_float & value) {
   return ret;
 }
 
-static te_expr * new_str_literal_expr(const te_strview & str) {
+static te_expr * new_str_literal_expr(const StrViewT & str) {
   // Special dynamically allocated te_value that can be longer than 64 bytes int.
   // TODO: actually parse the literal here ...
   const int length = str.len();
   const int size = sizeof(te_value_expr) - sizeof(te_value) + sizeof(const char *) + length + 1;
   te_value_expr * ret = static_cast<te_value_expr *>(malloc(size));
   ret->opcode = TE_OP_VALUE;
-  ret->type = TE_STR;
+  ret->type = TYPE_STR_VAL;
   ret->size = length + 1;
   ret->value.str = ret->value.str_storage;
   memcpy(ret->value.str_storage, str.ptr, length);
@@ -1194,30 +270,30 @@ static te_expr * new_str_literal_expr(const te_strview & str) {
   return ret;
 }
 
-static te_expr * new_stack_ref_expr(te_type source_type, uint16_t offset) {
-  te_type result_type = te_type(source_type & ~TE_CONSTANT);
+static te_expr * new_stack_ref_expr(Type source_type, uint16_t offset) {
+  Type result_type = Type(source_type & ~TYPE_FLAG_CONSTANT);
   const int size = sizeof(te_stack_ref_expr);
   te_stack_ref_expr * ret = static_cast<te_stack_ref_expr *>(malloc(size));
-  ret->opcode = TE_IS_REF(source_type) ? TE_OP_STACK_REF_REF : TE_OP_STACK_REF;
+  ret->opcode = is_ref(source_type) ? TE_OP_STACK_REF_REF : TE_OP_STACK_REF;
   ret->type = result_type;
   ret->offset = offset;
   return ret;
 }
 
-static te_expr * new_deref_expr(te_type target_type, te_expr * e) {
+static te_expr * new_deref_expr(Type target_type, te_expr * e) {
   if (e == nullptr) {
     return nullptr;
   }
 
-  te_type dereferenced_type = te_type(e->type | TE_CONSTANT);
-  if (e->type == target_type || e->type == TE_ERROR) {
+  Type dereferenced_type = Type(e->type | TYPE_FLAG_CONSTANT);
+  if (e->type == target_type || e->type == TYPE_ERROR) {
     return e;
-  } else if (dereferenced_type != target_type || target_type == TE_STR) {
+  } else if (dereferenced_type != target_type || target_type == TYPE_STR_VAL) {
     te_value_error("internal error: cannot deref ", e->type, " to ", target_type);
     return new_error_expr(e);
   }
 
-  const int value_size = te_size_of(dereferenced_type);
+  const int value_size = sizeof_type(dereferenced_type);
   const int size = sizeof(te_deref_expr);
   te_deref_expr * ret = static_cast<te_deref_expr *>(malloc(size));
   ret->opcode = TE_OP_DEREF;
@@ -1228,15 +304,15 @@ static te_expr * new_deref_expr(te_type target_type, te_expr * e) {
 }
 
 static te_expr * new_assign_expr(te_expr * lhs, te_expr * rhs) {
-  te_type lhs_type = lhs ? lhs->type : TE_ERROR;
+  Type lhs_type = lhs ? lhs->type : TYPE_ERROR;
   const int size = sizeof(te_assign_expr);
   te_assign_expr * ret = static_cast<te_assign_expr *>(malloc(size));
   ret->opcode = TE_OP_ASSIGN;
   ret->type = lhs_type;
   ret->lhs = lhs;
-  ret->rhs = new_deref_expr(te_type(lhs_type | TE_CONSTANT), rhs);
+  ret->rhs = new_deref_expr(Type(lhs_type | TYPE_FLAG_CONSTANT), rhs);
 
-  if (lhs_type != TE_ERROR && !TE_IS_REF(lhs_type)) {
+  if (lhs_type != TYPE_ERROR && !tesl::is_ref(lhs_type)) {
     te_value_error("error: cannot assign to constant ", lhs_type);
     return new_error_expr(ret);
   }
@@ -1260,7 +336,7 @@ static te_jmp_ref_op * new_jmp_ref_op(uint16_t * offset_ptr) {
 }
 
 static te_jmp_if_op * new_jmp_if_op(uint16_t offset, te_expr * e) {
-  e = new_deref_expr(TE_INT, e);
+  e = new_deref_expr(TYPE_INT_VAL, e);
   if (e == nullptr) {
     return nullptr;
   }
@@ -1273,7 +349,7 @@ static te_jmp_if_op * new_jmp_if_op(uint16_t offset, te_expr * e) {
 }
 
 static te_jmp_if_not_op * new_jmp_if_not_op(uint16_t offset, te_expr * e) {
-  e = new_deref_expr(TE_INT, e);
+  e = new_deref_expr(TYPE_INT_VAL, e);
   if (e == nullptr) {
     return nullptr;
   }
@@ -1285,7 +361,7 @@ static te_jmp_if_not_op * new_jmp_if_not_op(uint16_t offset, te_expr * e) {
   return ret;
 }
 
-static te_return_op * new_return_op(te_type return_type, te_expr * e) {
+static te_return_op * new_return_op(Type return_type, te_expr * e) {
   e = new_deref_expr(return_type, e);
   if (e == nullptr) {
     return nullptr;
@@ -1297,7 +373,7 @@ static te_return_op * new_return_op(te_type return_type, te_expr * e) {
   return ret;
 }
 
-static te_expr * new_call_expr_v(const te_fn_obj &fn, te_expr * const * args, const int arg_count) {
+static te_expr * new_call_expr_v(const FnObj &fn, te_expr * const * args, const int arg_count) {
   const int args_size = sizeof(te_expr *) * arg_count;
   const int size = sizeof(te_call_expr) + args_size;
   te_call_expr * ret = static_cast<te_call_expr *>(malloc(size));
@@ -1324,7 +400,7 @@ static te_expr * new_call_expr_v(const te_fn_obj &fn, te_expr * const * args, co
   }
 
   for (int i = 0; i < arg_count; ++i) {
-    ret->arg_stack_size += te_size_of(fn.param_types[i]);
+    ret->arg_stack_size += sizeof_type(fn.param_types[i]);
   }
   ret->fn = fn;
 
@@ -1336,12 +412,12 @@ static te_expr * new_call_expr_v(const te_fn_obj &fn, te_expr * const * args, co
 }
 
 template<typename ... Ts>
-static te_expr * new_call_expr(const te_fn_obj &fn, Ts && ... vs) {
+static te_expr * new_call_expr(const FnObj &fn, Ts && ... vs) {
   te_expr * args[] = {vs...};
   return new_call_expr_v(fn, args, sizeof...(Ts));
 }
 
-static te_expr * new_suite_expr(te_type return_type, uint16_t stack_size, te_op * stmts[], const int stmt_count) {
+static te_expr * new_suite_expr(Type return_type, uint16_t stack_size, te_op * stmts[], const int stmt_count) {
   const int size = sizeof(te_suite_expr) + sizeof(te_expr *) * stmt_count;
   te_suite_expr * ret = static_cast<te_suite_expr *>(malloc(size));
   memset(ret, 0, size);
@@ -1429,38 +505,38 @@ void te_free(te_op * op) {
 }
 
 namespace te {
-  // template<te_type RefType>
-  // type_of<te_type(RefType | TE_CONSTANT)> dereference_value(type_of<RefType> v) {
+  // template<Type RefType>
+  // type_of<Type(RefType | TYPE_FLAG_CONSTANT)> dereference_value(type_of<RefType> v) {
   //     return *v;
   // }
 
-  template<te_type Type>
+  template<Type Ty>
   constexpr int element_count = 0;
 
-  template<> inline constexpr int element_count<TE_INT> = 1;
-  template<> inline constexpr int element_count<TE_FLOAT> = 1;
-  template<> inline constexpr int element_count<TE_VEC2> = 2;
-  template<> inline constexpr int element_count<TE_VEC3> = 3;
-  template<> inline constexpr int element_count<TE_VEC4> = 4;
-  template<> inline constexpr int element_count<TE_MAT2> = 4;
-  template<> inline constexpr int element_count<TE_MAT3> = 9;
-  template<> inline constexpr int element_count<TE_MAT4> = 16;
+  template<> inline constexpr int element_count<TYPE_INT_VAL> = 1;
+  template<> inline constexpr int element_count<TYPE_FLOAT_VAL> = 1;
+  template<> inline constexpr int element_count<TYPE_VEC2_VAL> = 2;
+  template<> inline constexpr int element_count<TYPE_VEC3_VAL> = 3;
+  template<> inline constexpr int element_count<TYPE_VEC4_VAL> = 4;
+  template<> inline constexpr int element_count<TYPE_MAT2_VAL> = 4;
+  template<> inline constexpr int element_count<TYPE_MAT3_VAL> = 9;
+  template<> inline constexpr int element_count<TYPE_MAT4_VAL> = 16;
 
-  template<te_type T>
-  constexpr te_type element_tetype = TE_ERROR;
+  template<Type Ty>
+  constexpr Type element_tetype = TYPE_ERROR;
 
-  template<> inline constexpr te_type element_tetype<TE_VEC2> = TE_FLOAT;
-  template<> inline constexpr te_type element_tetype<TE_VEC3> = TE_FLOAT;
-  template<> inline constexpr te_type element_tetype<TE_VEC4> = TE_FLOAT;
-  template<> inline constexpr te_type element_tetype<TE_MAT2> = TE_VEC2;
-  template<> inline constexpr te_type element_tetype<TE_MAT3> = TE_VEC3;
-  template<> inline constexpr te_type element_tetype<TE_MAT4> = TE_VEC4;
-  template<> inline constexpr te_type element_tetype<TE_VEC2_REF> = TE_FLOAT_REF;
-  template<> inline constexpr te_type element_tetype<TE_VEC3_REF> = TE_FLOAT_REF;
-  template<> inline constexpr te_type element_tetype<TE_VEC4_REF> = TE_FLOAT_REF;
-  template<> inline constexpr te_type element_tetype<TE_MAT2_REF> = TE_VEC2_REF;
-  template<> inline constexpr te_type element_tetype<TE_MAT3_REF> = TE_VEC3_REF;
-  template<> inline constexpr te_type element_tetype<TE_MAT4_REF> = TE_VEC4_REF;
+  template<> inline constexpr Type element_tetype<TYPE_VEC2_VAL> = TYPE_FLOAT_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_VEC3_VAL> = TYPE_FLOAT_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_VEC4_VAL> = TYPE_FLOAT_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_MAT2_VAL> = TYPE_VEC2_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_MAT3_VAL> = TYPE_VEC3_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_MAT4_VAL> = TYPE_VEC4_VAL;
+  template<> inline constexpr Type element_tetype<TYPE_VEC2_REF> = TYPE_FLOAT_REF;
+  template<> inline constexpr Type element_tetype<TYPE_VEC3_REF> = TYPE_FLOAT_REF;
+  template<> inline constexpr Type element_tetype<TYPE_VEC4_REF> = TYPE_FLOAT_REF;
+  template<> inline constexpr Type element_tetype<TYPE_MAT2_REF> = TYPE_VEC2_REF;
+  template<> inline constexpr Type element_tetype<TYPE_MAT3_REF> = TYPE_VEC3_REF;
+  template<> inline constexpr Type element_tetype<TYPE_MAT4_REF> = TYPE_VEC4_REF;
 
   template<typename T> using element_type = type_of<element_tetype<type_value_of<T>>>;
 
@@ -1471,33 +547,33 @@ namespace te {
     memcpy(ret, reinterpret_cast<char *>(args) + offset, size);
   }
 
-  template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
+  template<Type RefTy, Type IsConstant = Type(RefTy & TYPE_FLAG_CONSTANT)>
   struct index_value {
-    static type_of<element_tetype<RefType>> call(type_of<RefType> v, te_int idx) {
+    static type_of<element_tetype<RefTy>> call(type_of<RefTy> v, IntT idx) {
       return &v->arr[idx];
     }
   };
-  template<te_type Type>
-  struct index_value<Type, TE_CONSTANT> {
-    static type_of<element_tetype<Type>> call(type_of<Type> v, te_int idx) {
+  template<Type Ty>
+  struct index_value<Ty, TYPE_FLAG_CONSTANT> {
+    static type_of<element_tetype<Ty>> call(type_of<Ty> v, IntT idx) {
       return v.arr[idx];
     }
   };
 
-  template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
+  template<Type RefTy, Type IsConstant = Type(RefTy & TYPE_FLAG_CONSTANT)>
   struct negate_value {
-    static type_of<te_type(RefType | TE_CONSTANT)> call(type_of<RefType> v) {
-      type_of<te_type(RefType | TE_CONSTANT)> vc;
-      for (int i = 0; i < element_count<te_type(RefType | TE_CONSTANT)>; ++i) {
+    static type_of<Type(RefTy | TYPE_FLAG_CONSTANT)> call(type_of<RefType> v) {
+      type_of<Type(RefTy | TYPE_FLAG_CONSTANT)> vc;
+      for (int i = 0; i < element_count<Type(RefTy | TYPE_FLAG_CONSTANT)>; ++i) {
         vc.elements[i] = -v->elements[i];
       }
       return vc;
     }
   };
-  template<te_type Type>
-  struct negate_value<Type, TE_CONSTANT> {
-    static type_of<Type> call(type_of<Type> v) {
-      for (int i = 0; i < element_count<Type>; ++i) {
+  template<Type Ty>
+  struct negate_value<Ty, TYPE_FLAG_CONSTANT> {
+    static type_of<Ty> call(type_of<Ty> v) {
+      for (int i = 0; i < element_count<Ty>; ++i) {
         v.elements[i] = -v.elements[i];
       }
       return v;
@@ -1505,72 +581,72 @@ namespace te {
   };
 
   template<>
-  struct negate_value<TE_FLOAT_REF, te_type(0)> {
-    static type_of<TE_FLOAT> call(type_of<TE_FLOAT_REF> v) {
+  struct negate_value<TYPE_FLOAT_REF, Type(0)> {
+    static type_of<TYPE_FLOAT_VAL> call(type_of<TYPE_FLOAT_REF> v) {
       return -*v;
     }
   };
   template<>
-  struct negate_value<TE_FLOAT, TE_CONSTANT> {
-    static type_of<TE_FLOAT> call(type_of<TE_FLOAT> v) {
+  struct negate_value<TYPE_FLOAT_VAL, TYPE_FLAG_CONSTANT> {
+    static type_of<TYPE_FLOAT_VAL> call(type_of<TYPE_FLOAT_VAL> v) {
       return -v;
     }
   };
 
   template<>
-  struct negate_value<TE_INT_REF, te_type(0)> {
-    static type_of<TE_INT> call(type_of<TE_INT_REF> v) {
+  struct negate_value<TYPE_INT_REF, Type(0)> {
+    static type_of<TYPE_INT_VAL> call(type_of<TYPE_INT_REF> v) {
       return -*v;
     }
   };
   template<>
-  struct negate_value<TE_INT, TE_CONSTANT> {
-    static type_of<TE_INT> call(type_of<TE_INT> v) {
+  struct negate_value<TYPE_INT_VAL, TYPE_FLAG_CONSTANT> {
+    static type_of<TYPE_INT_VAL> call(type_of<TYPE_INT_VAL> v) {
       return -v;
     }
   };
 
-  template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
+  template<Type RefTy, Type IsConstant = Type(RefType & TYPE_FLAG_CONSTANT)>
   struct swizzle2_value {
-    static te_vec2 call(type_of<RefType> v, te_int i, te_int j) {
+    static Vec2 call(type_of<RefTy> v, IntT i, IntT j) {
       return {v->arr[i], v->arr[j]};
     }
   };
-  template<te_type Type>
-  struct swizzle2_value<Type, TE_CONSTANT> {
-    static te_vec2 call(type_of<Type> v, te_int i, te_int j) {
+  template<Type Ty>
+  struct swizzle2_value<Ty, TYPE_FLAG_CONSTANT> {
+    static Vec2 call(type_of<Ty> v, IntT i, IntT j) {
       return {v.arr[i], v.arr[j]};
     }
   };
 
-  template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
+  template<Type RefTy, Type IsConstant = Type(RefType & TYPE_FLAG_CONSTANT)>
   struct swizzle3_value {
-    static te_vec3 call(type_of<RefType> v, te_int i, te_int j, te_int k) {
+    static Vec3 call(type_of<RefTy> v, IntT i, IntT j, IntT k) {
       return {v->arr[i], v->arr[j], v->arr[k]};
     }
   };
-  template<te_type Type>
-  struct swizzle3_value<Type, TE_CONSTANT> {
-    static te_vec3 call(type_of<Type> v, te_int i, te_int j, te_int k) {
+  template<Type Ty>
+  struct swizzle3_value<Ty, TYPE_FLAG_CONSTANT> {
+    static Vec3 call(type_of<Typ> v, IntT i, IntT j, IntT k) {
       return {v.arr[i], v.arr[j], v.arr[k]};
     }
   };
 
-  template<te_type RefType, te_type IsConstant = te_type(RefType & TE_CONSTANT)>
+  template<Type RefTy, Type IsConstant = Type(RefType & TYPE_FLAG_CONSTANT)>
   struct swizzle4_value {
-    static te_vec4 call(type_of<RefType> v, te_int i, te_int j, te_int k, te_int l) {
+    static Vec4 call(type_of<RefTy> v, IntT i, IntT j, IntT k, IntT l) {
       return {v->arr[i], v->arr[j], v->arr[k], v->arr[l]};
     }
   };
-  template<te_type Type>
-  struct swizzle4_value<Type, TE_CONSTANT> {
-    static te_vec4 call(type_of<Type> v, te_int i, te_int j, te_int k, te_int l) {
+  template<Type Ty>
+  struct swizzle4_value<Ty, TYPE_FLAG_CONSTANT> {
+    static Vec4 call(type_of<Ty> v, IntT i, IntT j, IntT k, IntT l) {
       return {v.arr[i], v.arr[j], v.arr[k], v.arr[l]};
     }
   };
 
   namespace detail {
-    te_float sign_float(te_float v) {
+    FloatT sign_float(FloatT v) {
       if (v > 0.0f) {
         return 1.0f;
       } else if (v < 0.0f) {
@@ -1580,7 +656,7 @@ namespace te {
       }
     }
 
-    te_int sign_int(te_int v) {
+    IntT sign_int(IntT v) {
       if (v > 0) {
         return 1;
       } else if (v < 0) {
@@ -1590,19 +666,19 @@ namespace te {
       }
     }
 
-    te_int fac(te_int a) {
+    IntT fac(IntT a) {
       if (a < 0) {
         return -1;
       }
 
-      te_int result = 1;
-      for (te_int i = 2; i <= a; i++) {
+      IntT result = 1;
+      for (IntT i = 2; i <= a; i++) {
         result *= i;
       }
       return result;
     }
 
-    te_int ncr(te_int n, te_int r) {
+    IntT ncr(IntT n, IntT r) {
       if (n < 0 || r < 0 || n < r) {
         return -1;
       }
@@ -1611,8 +687,8 @@ namespace te {
         r = n - r;
       }
 
-      te_int result = 1;
-      for (te_int i = 1; i <= r; i++) {
+      IntT result = 1;
+      for (IntT i = 1; i <= r; i++) {
         result *= n - r + i;
         result /= i;
       }
@@ -1620,13 +696,13 @@ namespace te {
       return result;
     }
 
-    te_int npr(te_int n, te_int r) {
+    IntT npr(IntT n, IntT r) {
       return ncr(n, r) * fac(r);
     }
 
-    //te_float abs2(te_float n) {return (n<0 ? -n : n);}
+    //FloatT abs2(FloatT n) {return (n<0 ? -n : n);}
 
-    //te_float log2(te_float n) {const te_float ln2=log(2); return log(n)/ln2;}
+    //FloatT log2(FloatT n) {const FloatT ln2=log(2); return log(n)/ln2;}
 
     template<typename T>
     T add(T a, T b) { return a + b; }
@@ -1639,17 +715,17 @@ namespace te {
     template<typename T>
     T mod(T a, T b) { return a % b; }
     template<>
-    te_float mod<te_float>(te_float a, te_float b) { return fmodf(a, b); }
+    FloatT mod<FloatT>(FloatT a, FloatT b) { return fmodf(a, b); }
 
-    te_float to_radians(te_float deg) { return deg * (PI / 180.0f); }
-    te_float to_degrees(te_float rad) { return rad * (180.0f / PI); }
+    FloatT to_radians(FloatT deg) { return deg * (PI / 180.0f); }
+    FloatT to_degrees(FloatT rad) { return rad * (180.0f / PI); }
 
     void int_to_float(void *, void * args, void * ret) {
-      *static_cast<te_float *>(ret) = static_cast<te_float>(*static_cast<te_int *>(args));
+      *static_cast<FloatT *>(ret) = static_cast<FloatT>(*static_cast<IntT *>(args));
     }
 
     void float_to_int(void *, void * args, void * ret) {
-      *static_cast<te_int *>(ret) = static_cast<te_int>(*static_cast<te_float *>(args));
+      *static_cast<IntT *>(ret) = static_cast<IntT>(*static_cast<FloatT *>(args));
     }
 
     // rest of the code in here only works because of how arguments are packed on the 'stack' and how vecs and mats are stored
@@ -1663,78 +739,78 @@ namespace te {
     template<int Size>
     void init_mem(void *, void *, void * ret) { memset(ret, 0, Size); }
 
-    template<te_type Type>
+    template<Type Ty>
     void float_to_vec(void *, void * args, void * ret) {
-      static_assert(te::is_vec<Type>);
-      te_float v = *static_cast<te_float *>(args);
-      for (int i = 0; i < te::element_count<Type>; ++i) {
-        static_cast<te_float *>(ret)[i] = v;
+      static_assert(te::is_vec<Ty>);
+      FloatT v = *static_cast<FloatT *>(args);
+      for (int i = 0; i < te::element_count<Ty>; ++i) {
+        static_cast<FloatT *>(ret)[i] = v;
       }
     }
 
-    template<te_type Type>
+    template<Type Ty>
     void float_to_mat(void * ctx, void * args, void * ret) {
-      static_assert(te::is_mat<Type>);
+      static_assert(te::is_mat<Ty>);
 
-      init_mem<te_size_of(Type)>(ctx, args, ret);
-      constexpr int MatSize = te::element_count<te::element_tetype<Type>>;
-      te_float v = *static_cast<te_float *>(args);
+      init_mem<sizeof_type(Ty)>(ctx, args, ret);
+      constexpr int MatSize = te::element_count<te::element_tetype<Ty>>;
+      FloatT v = *static_cast<FloatT *>(args);
       for (int i = 0; i < MatSize; ++i) {
-        static_cast<te::type_of<Type> *>(ret)->arr[i].arr[i] = v;
+        static_cast<te::type_of<Ty> *>(ret)->arr[i].arr[i] = v;
       }
     }
 
-    template<te_type FromType, te_type ToType>
+    template<Type FromTy, Type ToTy>
     void downgrade_mat(void *, void * args, void * ret) {
-      static_assert(te::is_mat<FromType>);
-      static_assert(te::is_mat<ToType>);
-      static_assert(FromType > ToType);
-      constexpr int ToMatSize = te::element_count<te::element_tetype<ToType>>;
+      static_assert(te::is_mat<FromTy>);
+      static_assert(te::is_mat<ToTy>);
+      static_assert(FromTy > ToTy);
+      constexpr int ToMatSize = te::element_count<te::element_tetype<ToTy>>;
 
       for (int i = 0; i < ToMatSize; ++i) {
         for (int j = 0; j < ToMatSize; ++j) {
-          static_cast<te::type_of<ToType> *>(ret)->arr[j].arr[i] = static_cast<te::type_of<FromType> *>(args)->arr[j].arr[i];
+          static_cast<te::type_of<ToTy> *>(ret)->arr[j].arr[i] = static_cast<te::type_of<FromTy> *>(args)->arr[j].arr[i];
         }
       }
     }
 
-    template<te_type FromType, te_type ToType>
+    template<Type FromTy, Type ToTy>
     void upgrade_mat(void * ctx, void * args, void * ret) {
-      static_assert(te::is_mat<FromType>);
-      static_assert(te::is_mat<ToType>);
-      static_assert(FromType < ToType);
-      constexpr int FromMatSize = te::element_count<te::element_tetype<FromType>>;
-      constexpr int ToMatSize = te::element_count<te::element_tetype<ToType>>;
+      static_assert(te::is_mat<FromTy>);
+      static_assert(te::is_mat<ToTy>);
+      static_assert(FromTy < ToTy);
+      constexpr int FromMatSize = te::element_count<te::element_tetype<FromTy>>;
+      constexpr int ToMatSize = te::element_count<te::element_tetype<ToTy>>;
 
-      init_mem<te_size_of(ToType)>(ctx, args, ret);
+      init_mem<sizeof_type(ToType)>(ctx, args, ret);
       for (int i = 0; i < ToMatSize; ++i) {
-        static_cast<te::type_of<ToType> *>(ret)->arr[i].arr[i] = 1.0f;
+        static_cast<te::type_of<ToTy> *>(ret)->arr[i].arr[i] = 1.0f;
       }
       for (int i = 0; i < FromMatSize; ++i) {
         for (int j = 0; j < FromMatSize; ++j) {
-          static_cast<te::type_of<ToType> *>(ret)->arr[j].arr[i] = static_cast<te::type_of<FromType> *>(args)->arr[j].arr[i];
+          static_cast<te::type_of<ToTy> *>(ret)->arr[j].arr[i] = static_cast<te::type_of<FromTy> *>(args)->arr[j].arr[i];
         }
       }
     }
   }
 }
 
-template<te_type TType, bool LockType, te_type ... ETypes>
-static te_function find_variadic_constructor(const te_type * param_types, int param_count) {
-  constexpr int target_size = te_size_of(TType);
+template<Type TargetTy, bool LockType, Type ... AllowedTys>
+static FnPtr find_variadic_constructor(const Type * param_types, int param_count) {
+  constexpr int target_size = sizeof_type(TargetTy);
   int args_size = 0;
-  te_type locked_tetype = TE_NULL;
+  Type locked_tetype = TYPE_NULL_VAL;
   for (int i = 0; i < param_count; ++i) {
-    te_type pt = static_cast<te_type>(param_types[i] | TE_CONSTANT);
-    if (!LockType || locked_tetype == TE_NULL) {
-      if (!((pt == ETypes) || ...)) {
+    Type pt = static_cast<Type>(param_types[i] | TYPE_FLAG_CONSTANT);
+    if (!LockType || locked_tetype == TYPE_NULL_VAL) {
+      if (!((pt == AllowedTys) || ...)) {
         return nullptr;
       }
       locked_tetype = pt;
     } else if (pt != locked_tetype) {
       return nullptr;
     }
-    args_size += te_size_of(pt);
+    args_size += sizeof_type(pt);
   }
 
   if (args_size == target_size) {
@@ -1744,32 +820,32 @@ static te_function find_variadic_constructor(const te_type * param_types, int pa
   return nullptr;
 }
 
-static te_function find_constructor_fn(te_type type, const te_type * param_types, int param_count) {
+static FnPtr find_constructor_fn(Type type, const Type * param_types, int param_count) {
   // single arg constructors
   if (param_count == 1) {
-    te_type p0 = static_cast<te_type>(param_types[0] | TE_CONSTANT);
-    if (p0 == TE_FLOAT) {
+    Type p0 = static_cast<Type>(param_types[0] | TYPE_FLAG_CONSTANT);
+    if (p0 == TYPE_FLOAT_VAL) {
       switch (type) {
-        case TE_INT:
+        case TYPE_INT_VAL:
           return te::detail::float_to_int;
           break;
-        case TE_VEC2:
-          return te::detail::float_to_vec<TE_VEC2>;
+        case TYPE_VEC2_VAL:
+          return te::detail::float_to_vec<TYPE_VEC2_VAL>;
           break;
-        case TE_VEC3:
-          return te::detail::float_to_vec<TE_VEC3>;
+        case TYPE_VEC3_VAL:
+          return te::detail::float_to_vec<TYPE_VEC3_VAL>;
           break;
-        case TE_VEC4:
-          return te::detail::float_to_vec<TE_VEC4>;
+        case TYPE_VEC4_VAL:
+          return te::detail::float_to_vec<TYPE_VEC4_VAL>;
           break;
-        case TE_MAT2:
-          return te::detail::float_to_mat<TE_MAT2>;
+        case TYPE_MAT2_VAL:
+          return te::detail::float_to_mat<TYPE_MAT2_VAL>;
           break;
-        case TE_MAT3:
-          return te::detail::float_to_mat<TE_MAT3>;
+        case TYPE_MAT3_VAL:
+          return te::detail::float_to_mat<TYPE_MAT3_VAL>;
           break;
-        case TE_MAT4:
-          return te::detail::float_to_mat<TE_MAT4>;
+        case TYPE_MAT4_VAL:
+          return te::detail::float_to_mat<TYPE_MAT4_VAL>;
           break;
         default:
           break;
@@ -1777,64 +853,64 @@ static te_function find_constructor_fn(te_type type, const te_type * param_types
     }
 
     switch (type) {
-      case TE_FLOAT: {
-        if (p0 == TE_INT) {
+      case TYPE_FLOAT_VAL: {
+        if (p0 == TYPE_INT_VAL) {
           return te::detail::int_to_float;
         }
       }
         break;
-      case TE_VEC2: {
-        if (p0 == TE_VEC2 || p0 == TE_VEC3 || p0 == TE_VEC4) {
-          return te::detail::mem_copy<te_size_of(TE_VEC2)>;
+      case TYPE_VEC2_VAL: {
+        if (p0 == TYPE_VEC2_VAL || p0 == TYPE_VEC3_VAL || p0 == TYPE_VEC4_VAL) {
+          return te::detail::mem_copy<sizeof_type(TYPE_VEC2_VAL)>;
         }
       }
         break;
-      case TE_VEC3: {
-        if (p0 == TE_VEC3 || p0 == TE_VEC4) {
-          return te::detail::mem_copy<te_size_of(TE_VEC3)>;
+      case TYPE_VEC3_VAL: {
+        if (p0 == TYPE_VEC3_VAL || p0 == TYPE_VEC4_VAL) {
+          return te::detail::mem_copy<sizeof_type(TYPE_VEC3_VAL)>;
         }
       }
         break;
-      case TE_VEC4: {
-        if (p0 == TE_VEC4) {
-          return te::detail::mem_copy<te_size_of(TE_VEC4)>;
+      case TYPE_VEC4_VAL: {
+        if (p0 == TYPE_VEC4_VAL) {
+          return te::detail::mem_copy<sizeof_type(TYPE_VEC4_VAL)>;
         }
       }
         break;
-      case TE_MAT2: {
+      case TYPE_MAT2_VAL: {
         switch (p0) {
-          case TE_MAT2:
-            return te::detail::mem_copy<te_size_of(TE_MAT2)>;
-          case TE_MAT3:
-            return te::detail::downgrade_mat<TE_MAT3, TE_MAT2>;
-          case TE_MAT4:
-            return te::detail::downgrade_mat<TE_MAT4, TE_MAT2>;
+          case TYPE_MAT2_VAL:
+            return te::detail::mem_copy<sizeof_type(TYPE_MAT2_VAL)>;
+          case TYPE_MAT3_VAL:
+            return te::detail::downgrade_mat<TYPE_MAT3_VAL, TYPE_MAT2_VAL>;
+          case TYPE_MAT4_VAL:
+            return te::detail::downgrade_mat<TYPE_MAT4_VAL, TYPE_MAT2_VAL>;
           default:
             break;
         }
       }
         break;
-      case TE_MAT3: {
+      case TYPE_MAT3_VAL: {
         switch (p0) {
-          case TE_MAT2:
-            return te::detail::upgrade_mat<TE_MAT2, TE_MAT3>;
-          case TE_MAT3:
-            return te::detail::mem_copy<te_size_of(TE_MAT3)>;
-          case TE_MAT4:
-            return te::detail::downgrade_mat<TE_MAT4, TE_MAT3>;
+          case TYPE_MAT2_VAL:
+            return te::detail::upgrade_mat<TYPE_MAT2_VAL, TYPE_MAT3_VAL>;
+          case TYPE_MAT3_VAL:
+            return te::detail::mem_copy<sizeof_type(TYPE_MAT3_VAL)>;
+          case TYPE_MAT4_VAL:
+            return te::detail::downgrade_mat<TYPE_MAT4_VAL, TYPE_MAT3_VAL>;
           default:
             break;
         }
       }
         break;
-      case TE_MAT4: {
+      case TYPE_MAT4_VAL: {
         switch (p0) {
-          case TE_MAT2:
-            return te::detail::upgrade_mat<TE_MAT2, TE_MAT4>;
-          case TE_MAT3:
-            return te::detail::upgrade_mat<TE_MAT3, TE_MAT4>;
-          case TE_MAT4:
-            return te::detail::mem_copy<te_size_of(TE_MAT4)>;
+          case TYPE_MAT2_VAL:
+            return te::detail::upgrade_mat<TYPE_MAT2_VAL, TYPE_MAT4_VAL>;
+          case TYPE_MAT3_VAL:
+            return te::detail::upgrade_mat<TYPE_MAT3_VAL, TYPE_MAT4_VAL>;
+          case TYPE_MAT4_VAL:
+            return te::detail::mem_copy<sizeof_type(TYPE_MAT4_VAL)>;
           default:
             break;
         }
@@ -1846,21 +922,21 @@ static te_function find_constructor_fn(te_type type, const te_type * param_types
   }
 
   // other constructors
-  te_function ret = nullptr;
-  te_type element_type = TE_NULL;
+  FnPtr ret = nullptr;
+  Type element_type = TYPE_NULL_VAL;
   switch (type) {
-    case TE_VEC2:
-      return find_variadic_constructor<TE_VEC2, false, TE_FLOAT, TE_VEC2>(param_types, param_count);
-    case TE_VEC3:
-      return find_variadic_constructor<TE_VEC3, false, TE_FLOAT, TE_VEC2, TE_VEC3>(param_types, param_count);
-    case TE_VEC4:
-      return find_variadic_constructor<TE_VEC4, false, TE_FLOAT, TE_VEC2, TE_VEC3, TE_VEC4>(param_types, param_count);
-    case TE_MAT2:
-      return find_variadic_constructor<TE_MAT2, true, TE_FLOAT, TE_VEC2>(param_types, param_count);
-    case TE_MAT3:
-      return find_variadic_constructor<TE_MAT3, true, TE_FLOAT, TE_VEC3>(param_types, param_count);
-    case TE_MAT4:
-      return find_variadic_constructor<TE_MAT4, true, TE_FLOAT, TE_VEC4>(param_types, param_count);
+    case TYPE_VEC2_VAL:
+      return find_variadic_constructor<TYPE_VEC2_VAL, false, TYPE_FLOAT_VAL, TYPE_VEC2_VAL>(param_types, param_count);
+    case TYPE_VEC3_VAL:
+      return find_variadic_constructor<TYPE_VEC3_VAL, false, TYPE_FLOAT_VAL, TYPE_VEC2_VAL, TYPE_VEC3_VAL>(param_types, param_count);
+    case TYPE_VEC4_VAL:
+      return find_variadic_constructor<TYPE_VEC4_VAL, false, TYPE_FLOAT_VAL, TYPE_VEC2_VAL, TYPE_VEC3_VAL, TYPE_VEC4_VAL>(param_types, param_count);
+    case TYPE_MAT2_VAL:
+      return find_variadic_constructor<TYPE_MAT2_VAL, true, TYPE_FLOAT_VAL, TYPE_VEC2_VAL>(param_types, param_count);
+    case TYPE_MAT3_VAL:
+      return find_variadic_constructor<TYPE_MAT3_VAL, true, TYPE_FLOAT_VAL, TYPE_VEC3_VAL>(param_types, param_count);
+    case TYPE_MAT4_VAL:
+      return find_variadic_constructor<TYPE_MAT4_VAL, true, TYPE_FLOAT_VAL, TYPE_VEC4_VAL>(param_types, param_count);
     default:
       break;
   }
@@ -1868,34 +944,34 @@ static te_function find_constructor_fn(te_type type, const te_type * param_types
   return nullptr;
 }
 
-static te_fn_obj find_constructor(te_parser_state & s, te_type type, const te_type * arg_types, int8_t arg_count) {
+static FnObj find_constructor(te_parser_state & s, Type type, const Type * arg_types, int8_t arg_count) {
   for (int i = 0; i < arg_count; ++i) {
-    if (arg_types[i] == TE_ERROR) {
-      return te_fn_obj{};
+    if (arg_types[i] == TYPE_ERROR) {
+      return FnObj{};
     }
   }
 
-  te_fn_obj fn;
+  FnObj fn;
   fn.ptr = find_constructor_fn(type, arg_types, arg_count);
   fn.context = nullptr;
   fn.return_type = type;
   fn.param_count = arg_count;
   for (int i = 0; i < arg_count; ++i) {
-    fn.param_types[i] = static_cast<te_type>(arg_types[i] | TE_CONSTANT);
+    fn.param_types[i] = static_cast<Type>(arg_types[i] | TYPE_FLAG_CONSTANT);
   }
 
   if (!fn.is_valid()) {
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: could not find constructor for ");
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: could not find constructor for ");
     te_print(type);
-    te_printf("(");
+    tesl_printf("(");
     for (int i = 0; i < arg_count; ++i) {
       if (i != 0) {
-        te_printf(", ");
+        tesl_printf(", ");
       }
       te_print(arg_types[i]);
     }
-    te_printf(")\n");
+    tesl_printf(")\n");
 #endif
     te_make_error(s);
   }
@@ -1903,14 +979,14 @@ static te_fn_obj find_constructor(te_parser_state & s, te_type type, const te_ty
   return fn;
 }
 
-static constexpr const te_variable te_builtins[] = {
-    {"true", te::make_value<te_int>(1)},
-    {"false", te::make_value<te_int>(0)},
-    {"E", te::make_value<te_float>(2.71828182845904523536f)},
-    {"INF", te::make_value<te_float>(INFINITY)},
-    {"NAN", te::make_value<te_float>(NAN)},
-    {"PI", te::make_value<te_float>(PI)},
-    {"TAU", te::make_value<te_float>(PI * 2.0f)},
+static constexpr const Variable te_builtins[] = {
+    {"true", te::make_value<IntT>(1)},
+    {"false", te::make_value<IntT>(0)},
+    {"E", te::make_value<FloatT>(2.71828182845904523536f)},
+    {"INF", te::make_value<FloatT>(INFINITY)},
+    {"NAN", te::make_value<FloatT>(NAN)},
+    {"PI", te::make_value<FloatT>(PI)},
+    {"TAU", te::make_value<FloatT>(PI * 2.0f)},
     {"abs", te::make_pure_function<fabsf>()},
     {"acos", te::make_pure_function<acosf>()},
     {"asin", te::make_pure_function<asinf>()},
@@ -1946,9 +1022,9 @@ static constexpr const te_variable te_builtins[] = {
     {"tanh", te::make_pure_function<tanhf>()},
 };
 
-static int te_builtins_count = sizeof(te_builtins) / sizeof(te_variable);
+static int te_builtins_count = sizeof(te_builtins) / sizeof(Variable);
 
-// static const te_variable *find_builtin(const char *name, int len) {
+// static const Variable *find_builtin(const char *name, int len) {
 //     int imin = 0;
 //     int imax = te_builtins_count - 1;
 //
@@ -1970,11 +1046,11 @@ static int te_builtins_count = sizeof(te_builtins) / sizeof(te_variable);
 // }
 
 template<typename T>
-static bool test_arg_types_match(T & var, const te_type * arg_types, int arg_count) {
+static bool test_arg_types_match(T & var, const Type * arg_types, int arg_count) {
   if (arg_types) {
-    if (var.type == TE_FUNCTION && arg_count == var.fn.param_count) {
+    if (var.type == TYPE_FUNCTION && arg_count == var.fn.param_count) {
       for (int i = 0; i < arg_count; ++i) {
-        if ((arg_types[i] | (var.fn.param_types[i] & TE_CONSTANT)) != var.fn.param_types[i]) {
+        if ((arg_types[i] | (var.fn.param_types[i] & TYPE_FLAG_CONSTANT)) != var.fn.param_types[i]) {
           return false;
         }
       }
@@ -1989,12 +1065,12 @@ static bool test_arg_types_match(T & var, const te_type * arg_types, int arg_cou
 }
 
 template<>
-bool test_arg_types_match<te_parser_state::local_var_t>(te_parser_state::local_var_t & var, const te_type * arg_types, int arg_count) {
+bool test_arg_types_match<te_parser_state::local_var_t>(te_parser_state::local_var_t & var, const Type * arg_types, int arg_count) {
   return true;
 }
 
 template<typename T>
-static te_parser_state::var_ref find_var_search(T * vars, int var_count, te_strview name, const te_type * arg_types = nullptr, int arg_count = 0) {
+static te_parser_state::var_ref find_var_search(T * vars, int var_count, StrViewT name, const Type * arg_types = nullptr, int arg_count = 0) {
   for (int i = var_count-1; i >= 0; --i) {
     T & var = vars[i];
     if (var.get_name() == name) {
@@ -2008,9 +1084,9 @@ static te_parser_state::var_ref find_var_search(T * vars, int var_count, te_strv
   return {};
 }
 
-static te_parser_state::var_ref find_var(te_parser_state & s, te_strview name, te_type * arg_types = nullptr, int arg_count = 0) {
+static te_parser_state::var_ref find_var(te_parser_state & s, StrViewT name, Type * arg_types = nullptr, int arg_count = 0) {
   for (int i = 0; i < arg_count; ++i) {
-    if (arg_types[i] == TE_ERROR) {
+    if (arg_types[i] == TYPE_ERROR) {
       return {};
     }
   }
@@ -2033,21 +1109,21 @@ static te_parser_state::var_ref find_var(te_parser_state & s, te_strview name, t
 
   if (!result.is_valid()) {
     if (arg_types) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: could not find function matching '%.*s", name.len(), name.ptr);
-      te_printf("(");
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: could not find function matching '%.*s", name.len(), name.ptr);
+      tesl_printf("(");
       for (int i = 0; i < arg_count; ++i) {
         if (i != 0) {
-          te_printf(", ");
+          tesl_printf(", ");
         }
         te_print(arg_types[i]);
       }
-      te_printf(")'\n");
+      tesl_printf(")'\n");
 #endif
       te_make_error(s);
     } else {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: could not find '%.*s'!\n", name.len(), name.ptr);
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: could not find '%.*s'!\n", name.len(), name.ptr);
 #endif
       te_make_error(s);
     }
@@ -2056,394 +1132,35 @@ static te_parser_state::var_ref find_var(te_parser_state & s, te_strview name, t
   return result;
 }
 
-bool try_tokenize_number_literal(const char * str, te_token & r_token) {
-  char * parsed_int_end = nullptr;
-  te_int parsed_int = strtol(str, &parsed_int_end, 0);
-  char * parsed_float_end = nullptr;
-  te_float parsed_float = strtof(str, &parsed_float_end);
-  if (parsed_float_end > parsed_int_end) {
-    // strtof parsed more, use that
-    r_token.kind = te_token::LITERAL;
-    r_token.type = TE_FLOAT;
-    r_token.name = {str, parsed_float_end};
-    r_token.float_value = parsed_float;
-    return true;
-  } else if (parsed_int_end > str) {
-    // strtol parsed something...
-    r_token.kind = te_token::LITERAL;
-    r_token.type = TE_INT;
-    r_token.name = {str, parsed_int_end};
-    r_token.int_value = parsed_int;
-    return true;
-  }
-  
-  return false;
-}
-
-void te_parser_state::advance() {
-  prev_token = curr_token;
-  curr_token = next_token;
-  if (_next_line_start && curr_token.name.ptr > _next_line_start) {
-    line_num++;
-    line_start = _next_line_start;
-  }
-
-  // TODO: include directive
-  bool new_line = next_token.name.end == program;
-  do {
-    {
-      const char * tok_start = next_token.name.end;
-      next_token = {};
-      next_token.name.ptr = next_token.name.end = tok_start;
-    }
-
-    if (next_token.name.ptr[0] == '\0') {
-      next_token.kind = te_token::END;
-      break;
-    }
-
-    /* Try reading a number. */
-    if (isdigit(next_token.name.ptr[0]) || (next_token.name.ptr[0] == '.' && isdigit(next_token.name.ptr[1]))) {
-      if (try_tokenize_number_literal(next_token.name.ptr, next_token)) {
-        break;
-      }
-    }
-
-    if (next_token.name.ptr[0] == '"') {
-      const char * end_quote = next_token.name.ptr + 1;
-      while (end_quote[0] != '"' || end_quote[-1] == '\\') {
-        if (end_quote[0] == '\0') {
-          te_error_record er{*this};
-#ifdef TE_DEBUG_COMPILE
-          te_printf("error: unexpected end of input!\n");
-#endif
-          te_make_error(*this);
-        }
-        ++end_quote;
-      }
-      next_token.kind = te_token::LITERAL;
-      next_token.type = TE_STR;
-      next_token.name = {next_token.name.ptr, end_quote + 1};
-      // Parse later ...
-      break;
-    }
-
-    if (isalpha(next_token.name.ptr[0]) || next_token.name.ptr[0] == '_') {
-      next_token.name.end++;
-      while (isalpha(*next_token.name.end) || isdigit(*next_token.name.end) || *next_token.name.end == '_') next_token.name.end++;
-      const int id_len = next_token.name.len();
-
-#define MATCHES_TOKEN_(str) (id_len == (sizeof(str) - 1) && strncmp(str, next_token.name.ptr, id_len) == 0)
-      switch (*next_token.name.ptr) {
-        case 'b': {
-          if (MATCHES_TOKEN_("break")) {
-            next_token.kind = te_token::BREAK;
-          }
-        } break;
-        case 'c': {
-          if (MATCHES_TOKEN_("case")) {
-            next_token.kind = te_token::CASE;
-          } else if (MATCHES_TOKEN_("continue")) {
-            next_token.kind = te_token::CONTINUE;
-          }
-        } break;
-        case 'd': {
-          if (MATCHES_TOKEN_("discard")) {
-            next_token.kind = te_token::DISCARD;
-          } else if (MATCHES_TOKEN_("do")) {
-            next_token.kind = te_token::DO;
-          }
-        } break;
-        case 'e': {
-          if (MATCHES_TOKEN_("else")) {
-            next_token.kind = te_token::ELSE;
-          }
-        } break;
-        case 'f': {
-          if (MATCHES_TOKEN_("float")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_FLOAT;
-          } else if (MATCHES_TOKEN_("for")) {
-            next_token.kind = te_token::FOR;
-          }
-        } break;
-        case 'i': {
-          if (MATCHES_TOKEN_("if")) {
-            next_token.kind = te_token::IF;
-          } else if (MATCHES_TOKEN_("in")) {
-            next_token.kind = te_token::IN;
-          } else if (MATCHES_TOKEN_("inout")) {
-            next_token.kind = te_token::INOUT;
-          } else if (MATCHES_TOKEN_("int")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_INT;
-          }
-        } break;
-        case 'm': {
-          if (MATCHES_TOKEN_("mat2")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_MAT2;
-          } else if (MATCHES_TOKEN_("mat3")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_MAT3;
-          } else if (MATCHES_TOKEN_("mat4")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_MAT4;
-          }
-        } break;
-        case 'o': {
-          if (MATCHES_TOKEN_("out")) {
-            next_token.kind = te_token::OUT;
-          }
-        } break;
-        case 'r': {
-          if (MATCHES_TOKEN_("return")) {
-            next_token.kind = te_token::RETURN;
-          }
-        } break;
-        case 's': {
-          if (MATCHES_TOKEN_("switch")) {
-            next_token.kind = te_token::SWITCH;
-          } else if (MATCHES_TOKEN_("str")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_STR;
-          }
-        } break;
-        case 'u': {
-          if (MATCHES_TOKEN_("uniform")) {
-            next_token.kind = te_token::UNIFORM;
-          }
-        } break;
-        case 'v': {
-          if (MATCHES_TOKEN_("vec2")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_VEC2;
-          } else if (MATCHES_TOKEN_("vec3")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_VEC3;
-          } else if (MATCHES_TOKEN_("vec4")) {
-            next_token.kind = te_token::TYPENAME;
-            next_token.type = TE_VEC4;
-          }
-        } break;
-        case 'w': {
-          if (MATCHES_TOKEN_("while")) {
-            next_token.kind = te_token::WHILE;
-          }
-        } break;
-      }
-#undef MATCHES_TOKEN_
-
-      if (next_token.kind == te_token::NONE) {
-        next_token.kind = te_token::IDENTIFIER;
-      }
-
-      break;
-    }
-
-    /* Look for an operator or special character. */
-    switch (next_token.name.end++[0]) {
-      case '&': {
-        if (*next_token.name.end == '&') {
-          next_token.name.end++;
-          next_token.kind = te_token::AND_AND;
-        } else {
-          next_token.kind = te_token::AND;
-        }
-      } break;
-      case '^': {
-        if (*next_token.name.end == '^') {
-          next_token.name.end++;
-          next_token.kind = te_token::CARET_CARET;
-        } else {
-          next_token.kind = te_token::CARET;
-        }
-      } break;
-      case '|': {
-        if (*next_token.name.end == '|') {
-          next_token.name.end++;
-          next_token.kind = te_token::PIPE_PIPE;
-        } else {
-          next_token.kind = te_token::PIPE;
-        }
-      } break;
-      case '=': {
-        if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::EQUAL_EQUAL;
-        } else {
-          next_token.kind = te_token::EQUAL;
-        }
-      } break;
-      case '!': {
-        if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::BANG_EQUAL;
-        } else {
-          next_token.kind = te_token::BANG;
-        }
-      } break;
-      case '<': {
-        if (*next_token.name.end == '<') {
-          next_token.name.end++;
-          next_token.kind = te_token::LESS_LESS;
-        } else if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::LESS_EQUAL;
-        } else {
-          next_token.kind = te_token::LESS;
-        }
-      } break;
-      case '>': {
-        if (*next_token.name.end == '>') {
-          next_token.name.end++;
-          next_token.kind = te_token::GREATER_GREATER;
-        } else if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::GREATER_EQUAL;
-        } else {
-          next_token.kind = te_token::GREATER;
-        }
-      } break;
-      case '+': {
-        if (*next_token.name.end == '+') {
-          next_token.name.end++;
-          next_token.kind = te_token::PLUS_PLUS;
-        } else if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::PLUS_EQUAL;
-        } else {
-          next_token.kind = te_token::PLUS;
-        }
-      } break;
-      case '-': {
-        if (*next_token.name.end == '-') {
-          next_token.name.end++;
-          next_token.kind = te_token::MINUS_MINUS;
-        } else if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::MINUS_EQUAL;
-        } else {
-          next_token.kind = te_token::MINUS;
-        }
-      } break;
-      case '*': {
-        if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::STAR_EQUAL;
-        } else {
-          next_token.kind = te_token::STAR;
-        }
-      } break;
-      case '/': {
-        if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::SLASH_EQUAL;
-        } else {
-          next_token.kind = te_token::SLASH;
-        }
-      } break;
-      case '%': {
-        if (*next_token.name.end == '=') {
-          next_token.name.end++;
-          next_token.kind = te_token::PERCENT_EQUAL;
-        } else {
-          next_token.kind = te_token::PERCENT;
-        }
-      } break;
-      case '(':
-        next_token.kind = te_token::OPEN_PAREN;
-        break;
-      case ')':
-        next_token.kind = te_token::CLOSE_PAREN;
-        break;
-      case '[':
-        next_token.kind = te_token::OPEN_SQUARE_BRACKET;
-        break;
-      case ']':
-        next_token.kind = te_token::CLOSE_SQUARE_BRACKET;
-        break;
-      case '{':
-        next_token.kind = te_token::OPEN_CURLY_BRACKET;
-        break;
-      case '}':
-        next_token.kind = te_token::CLOSE_CURLY_BRACKET;
-        break;
-      case ',':
-        next_token.kind = te_token::COMMA;
-        break;
-      case '.':
-        next_token.kind = te_token::DOT;
-        break;
-      case ';':
-        next_token.kind = te_token::SEMICOLON;
-        break;
-      case ':':
-        next_token.kind = te_token::COLON;
-        break;
-      case '?':
-        next_token.kind = te_token::QUESTION_MARK;
-        break;
-      case '\r':
-        if (next_token.name.end[0] == '\n') next_token.name.end++;
-        // fallthrough
-      case '\n':
-        new_line = true;
-        _next_line_start = next_token.name.end;
-        break;
-      case ' ':
-      case '\t':
-        break;
-      default: {
-        te_error_record er{*this};
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: unrecognised token '%.*s'!\n", next_token.name.len(), next_token.name.ptr);
-#endif
-        te_make_error(*this);
-      } break;
-    }
-    
-    if (next_token.name.len() == 0) {
-      next_token.name.end++;
-      te_printf("internal error: zero-length token!\n");
-    }
-  } while (next_token.kind == te_token::NONE);
-#ifdef TE_DEBUG_TOKENIZER
-  te_printf("token: ");
-  te_print(token);
-  te_printf("\n");
-#endif
-}
-
-static te_fn_obj te_get_index_func(te_type type) {
-  te_fn_obj ret;
+static FnObj te_get_index_func(Type type) {
+  FnObj ret;
   ret.ptr = nullptr;
 
   switch (type) {
-    case TE_VEC2:
-      return te::make_pure_function<te::index_value<TE_VEC2>::call>();
-    case TE_VEC3:
-      return te::make_pure_function<te::index_value<TE_VEC3>::call>();
-    case TE_VEC4:
-      return te::make_pure_function<te::index_value<TE_VEC4>::call>();
-    case TE_MAT2:
-      return te::make_pure_function<te::index_value<TE_MAT2>::call>();
-    case TE_MAT3:
-      return te::make_pure_function<te::index_value<TE_MAT3>::call>();
-    case TE_MAT4:
-      return te::make_pure_function<te::index_value<TE_MAT4>::call>();
-    case TE_VEC2_REF:
-      return te::make_pure_function<te::index_value<TE_VEC2_REF>::call>();
-    case TE_VEC3_REF:
-      return te::make_pure_function<te::index_value<TE_VEC3_REF>::call>();
-    case TE_VEC4_REF:
-      return te::make_pure_function<te::index_value<TE_VEC4_REF>::call>();
-    case TE_MAT2_REF:
-      return te::make_pure_function<te::index_value<TE_MAT2_REF>::call>();
-    case TE_MAT3_REF:
-      return te::make_pure_function<te::index_value<TE_MAT3_REF>::call>();
-    case TE_MAT4_REF:
-      return te::make_pure_function<te::index_value<TE_MAT4_REF>::call>();
+    case TYPE_VEC2_VAL:
+      return te::make_pure_function<te::index_value<TYPE_VEC2_VAL>::call>();
+    case TYPE_VEC3_VAL:
+      return te::make_pure_function<te::index_value<TYPE_VEC3_VAL>::call>();
+    case TYPE_VEC4_VAL:
+      return te::make_pure_function<te::index_value<TYPE_VEC4_VAL>::call>();
+    case TYPE_MAT2_VAL:
+      return te::make_pure_function<te::index_value<TYPE_MAT2_VAL>::call>();
+    case TYPE_MAT3_VAL:
+      return te::make_pure_function<te::index_value<TYPE_MAT3_VAL>::call>();
+    case TYPE_MAT4_VAL:
+      return te::make_pure_function<te::index_value<TYPE_MAT4_VAL>::call>();
+    case TYPE_VEC2_REF:
+      return te::make_pure_function<te::index_value<TYPE_VEC2_REF>::call>();
+    case TYPE_VEC3_REF:
+      return te::make_pure_function<te::index_value<TYPE_VEC3_REF>::call>();
+    case TYPE_VEC4_REF:
+      return te::make_pure_function<te::index_value<TYPE_VEC4_REF>::call>();
+    case TYPE_MAT2_REF:
+      return te::make_pure_function<te::index_value<TYPE_MAT2_REF>::call>();
+    case TYPE_MAT3_REF:
+      return te::make_pure_function<te::index_value<TYPE_MAT3_REF>::call>();
+    case TYPE_MAT4_REF:
+      return te::make_pure_function<te::index_value<TYPE_MAT4_REF>::call>();
     default:
       break;
   }
@@ -2451,23 +1168,23 @@ static te_fn_obj te_get_index_func(te_type type) {
   return ret;
 }
 
-static te_fn_obj te_get_swizzle2_func(te_type type) {
-  te_fn_obj ret;
+static FnObj te_get_swizzle2_func(Type type) {
+  FnObj ret;
   ret.ptr = nullptr;
 
   switch (type) {
-    case TE_VEC2_REF:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC2_REF>::call>();
-    case TE_VEC3_REF:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC3_REF>::call>();
-    case TE_VEC4_REF:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC4_REF>::call>();
-    case TE_VEC2:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC2>::call>();
-    case TE_VEC3:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC3>::call>();
-    case TE_VEC4:
-      return te::make_pure_function<te::swizzle2_value<TE_VEC4>::call>();
+    case TYPE_VEC2_REF:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC2_REF>::call>();
+    case TYPE_VEC3_REF:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC3_REF>::call>();
+    case TYPE_VEC4_REF:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC4_REF>::call>();
+    case TYPE_VEC2_VAL:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC2_VAL>::call>();
+    case TYPE_VEC3_VAL:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC3_VAL>::call>();
+    case TYPE_VEC4_VAL:
+      return te::make_pure_function<te::swizzle2_value<TYPE_VEC4_VAL>::call>();
     default:
       break;
   }
@@ -2475,23 +1192,23 @@ static te_fn_obj te_get_swizzle2_func(te_type type) {
   return ret;
 }
 
-static te_fn_obj te_get_swizzle3_func(te_type type) {
-  te_fn_obj ret;
+static FnObj te_get_swizzle3_func(Type type) {
+  FnObj ret;
   ret.ptr = nullptr;
 
   switch (type) {
-    case TE_VEC2_REF:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC2_REF>::call>();
-    case TE_VEC3_REF:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC3_REF>::call>();
-    case TE_VEC4_REF:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC4_REF>::call>();
-    case TE_VEC2:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC2>::call>();
-    case TE_VEC3:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC3>::call>();
-    case TE_VEC4:
-      return te::make_pure_function<te::swizzle3_value<TE_VEC4>::call>();
+    case TYPE_VEC2_REF:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC2_REF>::call>();
+    case TYPE_VEC3_REF:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC3_REF>::call>();
+    case TYPE_VEC4_REF:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC4_REF>::call>();
+    case TYPE_VEC2_VAL:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC2_VAL>::call>();
+    case TYPE_VEC3_VAL:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC3_VAL>::call>();
+    case TYPE_VEC4_VAL:
+      return te::make_pure_function<te::swizzle3_value<TYPE_VEC4_VAL>::call>();
     default:
       break;
   }
@@ -2499,23 +1216,23 @@ static te_fn_obj te_get_swizzle3_func(te_type type) {
   return ret;
 }
 
-static te_fn_obj te_get_swizzle4_func(te_type type) {
-  te_fn_obj ret;
+static FnObj te_get_swizzle4_func(Type type) {
+  FnObj ret;
   ret.ptr = nullptr;
 
   switch (type) {
-    case TE_VEC2_REF:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC2_REF>::call>();
-    case TE_VEC3_REF:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC3_REF>::call>();
-    case TE_VEC4_REF:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC4_REF>::call>();
-    case TE_VEC2:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC2>::call>();
-    case TE_VEC3:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC3>::call>();
-    case TE_VEC4:
-      return te::make_pure_function<te::swizzle4_value<TE_VEC4>::call>();
+    case TYPE_VEC2_REF:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC2_REF>::call>();
+    case TYPE_VEC3_REF:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC3_REF>::call>();
+    case TYPE_VEC4_REF:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC4_REF>::call>();
+    case TYPE_VEC2_VAL:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC2_VAL>::call>();
+    case TYPE_VEC3_VAL:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC3_VAL>::call>();
+    case TYPE_VEC4_VAL:
+      return te::make_pure_function<te::swizzle4_value<TYPE_VEC4_VAL>::call>();
     default:
       break;
   }
@@ -2523,43 +1240,43 @@ static te_fn_obj te_get_swizzle4_func(te_type type) {
   return ret;
 }
 
-static te_fn_obj te_get_negate_func(te_type type) {
-  te_fn_obj ret;
+static FnObj te_get_negate_func(Type type) {
+  FnObj ret;
   ret.ptr = nullptr;
 
   switch (type) {
-    case TE_INT:
-      return te::make_pure_function<te::negate_value<TE_INT>::call>();
-    case TE_FLOAT:
-      return te::make_pure_function<te::negate_value<TE_FLOAT>::call>();
-    case TE_VEC2:
-      return te::make_pure_function<te::negate_value<TE_VEC2>::call>();
-    case TE_VEC3:
-      return te::make_pure_function<te::negate_value<TE_VEC3>::call>();
-    case TE_VEC4:
-      return te::make_pure_function<te::negate_value<TE_VEC4>::call>();
-    case TE_MAT2:
-      return te::make_pure_function<te::negate_value<TE_MAT2>::call>();
-    case TE_MAT3:
-      return te::make_pure_function<te::negate_value<TE_MAT3>::call>();
-    case TE_MAT4:
-      return te::make_pure_function<te::negate_value<TE_MAT4>::call>();
-    case TE_INT_REF:
-      return te::make_pure_function<te::negate_value<TE_INT_REF>::call>();
-    case TE_FLOAT_REF:
-      return te::make_pure_function<te::negate_value<TE_FLOAT_REF>::call>();
-    case TE_VEC2_REF:
-      return te::make_pure_function<te::negate_value<TE_VEC2_REF>::call>();
-    case TE_VEC3_REF:
-      return te::make_pure_function<te::negate_value<TE_VEC3_REF>::call>();
-    case TE_VEC4_REF:
-      return te::make_pure_function<te::negate_value<TE_VEC4_REF>::call>();
-    case TE_MAT2_REF:
-      return te::make_pure_function<te::negate_value<TE_MAT2_REF>::call>();
-    case TE_MAT3_REF:
-      return te::make_pure_function<te::negate_value<TE_MAT3_REF>::call>();
-    case TE_MAT4_REF:
-      return te::make_pure_function<te::negate_value<TE_MAT4_REF>::call>();
+    case TYPE_INT_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_INT_VAL>::call>();
+    case TYPE_FLOAT_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_FLOAT_VAL>::call>();
+    case TYPE_VEC2_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_VEC2_VAL>::call>();
+    case TYPE_VEC3_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_VEC3_VAL>::call>();
+    case TYPE_VEC4_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_VEC4_VAL>::call>();
+    case TYPE_MAT2_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_MAT2_VAL>::call>();
+    case TYPE_MAT3_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_MAT3_VAL>::call>();
+    case TYPE_MAT4_VAL:
+      return te::make_pure_function<te::negate_value<TYPE_MAT4_VAL>::call>();
+    case TYPE_INT_REF:
+      return te::make_pure_function<te::negate_value<TYPE_INT_REF>::call>();
+    case TYPE_FLOAT_REF:
+      return te::make_pure_function<te::negate_value<TYPE_FLOAT_REF>::call>();
+    case TYPE_VEC2_REF:
+      return te::make_pure_function<te::negate_value<TYPE_VEC2_REF>::call>();
+    case TYPE_VEC3_REF:
+      return te::make_pure_function<te::negate_value<TYPE_VEC3_REF>::call>();
+    case TYPE_VEC4_REF:
+      return te::make_pure_function<te::negate_value<TYPE_VEC4_REF>::call>();
+    case TYPE_MAT2_REF:
+      return te::make_pure_function<te::negate_value<TYPE_MAT2_REF>::call>();
+    case TYPE_MAT3_REF:
+      return te::make_pure_function<te::negate_value<TYPE_MAT3_REF>::call>();
+    case TYPE_MAT4_REF:
+      return te::make_pure_function<te::negate_value<TYPE_MAT4_REF>::call>();
     default:
       break;
   }
@@ -2572,7 +1289,7 @@ namespace te::detail {
   struct fn_scalar_op_scalar {
     template<typename TRet, typename TA, typename TB>
     static void call(void *, void * args, void * retvp) {
-      static_assert(te::is_same<TA, TB>);
+      static_assert(std::is_same_v<TA, TB>);
       TRet * ret = (TRet *) retvp;
       TA * ap = (TA *) args;
       TB * bp = (TB *) (&ap[1]);
@@ -2586,7 +1303,7 @@ namespace te::detail {
   struct fn_vec_op_vec {
     template<typename TRet, typename TA, typename TB>
     static void call(void *, void * args, void * retvp) {
-      static_assert(te::is_same<TA, TB>);
+      static_assert(std::is_same_v<TA, TB>);
       TRet * ret = (TRet *) retvp;
       TA * ap = (TA *) args;
       TB * bp = (TB *) (&ap[1]);
@@ -2638,7 +1355,7 @@ namespace te::detail {
     TA a = *ap;
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
-      te_float sum = 0.0f;
+      FloatT sum = 0.0f;
       for (int j = 0; j < MatSize; ++j) {
         sum += te::detail::mul(a.arr[i].arr[j], b.arr[j]);
       }
@@ -2656,7 +1373,7 @@ namespace te::detail {
     TA a = *ap;
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
-      te_float sum = 0.0f;
+      FloatT sum = 0.0f;
       for (int j = 0; j < MatSize; ++j) {
         sum += te::detail::mul(a.arr[i], b.arr[i].arr[j]);
       }
@@ -2666,7 +1383,7 @@ namespace te::detail {
 
   template<typename TRet, typename TA, typename TB>
   void fn_matrix_mul_matrix(void *, void * args, void * retvp) {
-    static_assert(te::is_same<TA, TB>);
+    static_assert(std::is_same_v<TA, TB>);
     constexpr auto MatSize = te::element_count<te::element_tetype<te::type_value_of<TA>>>;
     TRet * ret = (TRet *) retvp;
     TA * ap = (TA *) args;
@@ -2675,7 +1392,7 @@ namespace te::detail {
     TB b = *bp;
     for (int i = 0; i < MatSize; ++i) {
       for (int j = 0; j < MatSize; ++j) {
-        te_float sum = 0.0f;
+        FloatT sum = 0.0f;
         for (int k = 0; k < MatSize; ++k) {
           sum += te::detail::mul(a.arr[i].arr[k], b.arr[k].arr[j]);
         }
@@ -2685,132 +1402,116 @@ namespace te::detail {
   }
 }
 
-#define TE_BINARY_OP_FUNCTION(FNAME, TRET, TA, TB) te::detail::make_function_raw(FNAME<te::type_of<(TRET)>, te::type_of<(TA)>, te::type_of<(TB)>>, nullptr, true, (TRET), {(TA), (TB)})
+#define TE_BINARY_OP_FUNCTION(FNAME, TRET, TA, TB) tesl::detail::make_function_raw(FNAME<tesl::type_of<(TRET)>, tesl::type_of<(TA)>, tesl::type_of<(TB)>>, nullptr, true, (TRET), {(TA), (TB)})
 
-#define CASE_SCALAR_SCALAR_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_scalar_op_scalar<(OP)>::call, TA, TA, TB)
-#define CASE_VEC_VEC_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_vec_op_vec<(OP)>::call, TA, TA, TB)
-#define CASE_SCALAR_VEC_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_scalar_op_vec<(OP)>::call, TB, TA, TB)
-#define CASE_VEC_SCALAR_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_vec_op_scalar<(OP)>::call, TA, TA, TB)
-#define CASE_MATRIX_VEC_MUL_(TA, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_matrix_mul_vec, TB, TA, TB)
-#define CASE_VEC_MATRIX_MUL_(TA, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(te::detail::fn_vec_mul_matrix, TA, TA, TB)
-#define CASE_MATRIX_MATRIX_MUL_(T) if (typeA == (T) && typeB == (T)) return TE_BINARY_OP_FUNCTION(te::detail::fn_matrix_mul_matrix, T, T, T)
+#define CASE_SCALAR_SCALAR_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_scalar_op_scalar<(OP)>::call, TA, TA, TB)
+#define CASE_VEC_VEC_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_vec_op_vec<(OP)>::call, TA, TA, TB)
+#define CASE_SCALAR_VEC_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_scalar_op_vec<(OP)>::call, TB, TA, TB)
+#define CASE_VEC_SCALAR_(TA, OP, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_vec_op_scalar<(OP)>::call, TA, TA, TB)
+#define CASE_MATRIX_VEC_MUL_(TA, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_matrix_mul_vec, TB, TA, TB)
+#define CASE_VEC_MATRIX_MUL_(TA, TB) if (typeA == (TA) && typeB == (TB)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_vec_mul_matrix, TA, TA, TB)
+#define CASE_MATRIX_MATRIX_MUL_(T) if (typeA == (T) && typeB == (T)) return TE_BINARY_OP_FUNCTION(tesl::detail::fn_matrix_mul_matrix, T, T, T)
 
-// void mm4_mul_(void*, void *args, void *retvp) {
-//     te_mat4 *ret = (te_mat4*)ret;
-//     te_mat4 *ap = (te_mat4*)args;
-//     te_mat4 a = *ap;
-//     te_mat4 b = *(te_mat4*)(&ap[1]);
-//     for (int i = 0; i < 4; ++i) {
-//         for (int j = 0; j < 4; ++j) {
-//             te_float sum = 0.0f;
-//             for (int k = 0; k < 4; ++k) {
-//                 sum += te::detail::mul(a.arr[i].arr[k], b.arr[k].arr[j]);
-//             }
-//             ret->arr[i].arr[j] = sum;
-//         }
-//     }
-// };
-
-static te_fn_obj te_get_add_func(te_type typeA, te_type typeB) {
-  te_fn_obj ret;
+static FnObj te_get_add_func(Type typeA, Type typeB) {
+  FnObj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::add<te_int>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::add<te_float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::add<te_float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::add<te_float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::add<te_float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TYPE_INT_VAL, te::detail::add<IntT>, TYPE_INT_VAL);
+  CASE_SCALAR_SCALAR_(TYPE_FLOAT_VAL, te::detail::add<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_VEC_(TYPE_VEC2_VAL, te::detail::add<FloatT>, TYPE_VEC2_VAL);
+  CASE_VEC_VEC_(TYPE_VEC3_VAL, te::detail::add<FloatT>, TYPE_VEC3_VAL);
+  CASE_VEC_VEC_(TYPE_VEC4_VAL, te::detail::add<FloatT>, TYPE_VEC4_VAL);
 
   return ret;
 }
 
-static te_fn_obj te_get_sub_func(te_type typeA, te_type typeB) {
-  te_fn_obj ret;
+static FnObj te_get_sub_func(Type typeA, Type typeB) {
+  FnObj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::sub<te_int>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::sub<te_float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::sub<te_float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::sub<te_float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::sub<te_float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TYPE_INT_VAL, te::detail::sub<IntT>, TYPE_INT_VAL);
+  CASE_SCALAR_SCALAR_(TYPE_FLOAT_VAL, te::detail::sub<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_VEC_(TYPE_VEC2_VAL, te::detail::sub<FloatT>, TYPE_VEC2_VAL);
+  CASE_VEC_VEC_(TYPE_VEC3_VAL, te::detail::sub<FloatT>, TYPE_VEC3_VAL);
+  CASE_VEC_VEC_(TYPE_VEC4_VAL, te::detail::sub<FloatT>, TYPE_VEC4_VAL);
 
   return ret;
 }
 
-static te_fn_obj te_get_mod_func(te_type typeA, te_type typeB) {
-  te_fn_obj ret;
+static FnObj te_get_mod_func(Type typeA, Type typeB) {
+  FnObj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mod<te_int>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mod<te_float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::mod<te_float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::mod<te_float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::mod<te_float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mod<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mod<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mod<te_float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mod<te_float>, TE_VEC4);
+  CASE_SCALAR_SCALAR_(TYPE_INT_VAL, te::detail::mod<IntT>, TYPE_INT_VAL);
+  CASE_SCALAR_SCALAR_(TYPE_FLOAT_VAL, te::detail::mod<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_VEC_(TYPE_VEC2_VAL, te::detail::mod<FloatT>, TYPE_VEC2_VAL);
+  CASE_VEC_VEC_(TYPE_VEC3_VAL, te::detail::mod<FloatT>, TYPE_VEC3_VAL);
+  CASE_VEC_VEC_(TYPE_VEC4_VAL, te::detail::mod<FloatT>, TYPE_VEC4_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC2_VAL, te::detail::mod<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC3_VAL, te::detail::mod<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC4_VAL, te::detail::mod<FloatT>, TYPE_FLOAT_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mod<FloatT>, TYPE_VEC2_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mod<FloatT>, TYPE_VEC3_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mod<FloatT>, TYPE_VEC4_VAL);
 
   return ret;
 }
 
-static te_fn_obj te_get_mul_func(te_type typeA, te_type typeB) {
-  te_fn_obj ret;
+static FnObj te_get_mul_func(Type typeA, Type typeB) {
+  FnObj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::mul<te_int>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::mul<te_float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::mul<te_float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::mul<te_float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_MAT2, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT3, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT4, te::detail::mul<te_float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::mul<te_float>, TE_MAT4);
-  CASE_MATRIX_VEC_MUL_(TE_MAT2, TE_VEC2);
-  CASE_MATRIX_VEC_MUL_(TE_MAT3, TE_VEC3);
-  CASE_MATRIX_VEC_MUL_(TE_MAT4, TE_VEC4);
-  CASE_VEC_MATRIX_MUL_(TE_VEC2, TE_MAT2);
-  CASE_VEC_MATRIX_MUL_(TE_VEC3, TE_MAT3);
-  CASE_VEC_MATRIX_MUL_(TE_VEC4, TE_MAT4);
-  CASE_MATRIX_MATRIX_MUL_(TE_MAT2);
-  CASE_MATRIX_MATRIX_MUL_(TE_MAT3);
-  CASE_MATRIX_MATRIX_MUL_(TE_MAT4);
+  CASE_SCALAR_SCALAR_(TYPE_INT_VAL, te::detail::mul<IntT>, TYPE_INT_VAL);
+  CASE_SCALAR_SCALAR_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_VEC_(TYPE_VEC2_VAL, te::detail::mul<FloatT>, TYPE_VEC2_VAL);
+  CASE_VEC_VEC_(TYPE_VEC3_VAL, te::detail::mul<FloatT>, TYPE_VEC3_VAL);
+  CASE_VEC_VEC_(TYPE_VEC4_VAL, te::detail::mul<FloatT>, TYPE_VEC4_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC2_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC3_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC4_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_VEC2_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_VEC3_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_VEC4_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT2_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT3_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT4_VAL, te::detail::mul<FloatT>, TYPE_FLOAT_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_MAT2_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_MAT3_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::mul<FloatT>, TYPE_MAT4_VAL);
+  CASE_MATRIX_VEC_MUL_(TYPE_MAT2_VAL, TYPE_VEC2_VAL);
+  CASE_MATRIX_VEC_MUL_(TYPE_MAT3_VAL, TYPE_VEC3_VAL);
+  CASE_MATRIX_VEC_MUL_(TYPE_MAT4_VAL, TYPE_VEC4_VAL);
+  CASE_VEC_MATRIX_MUL_(TYPE_VEC2_VAL, TYPE_MAT2_VAL);
+  CASE_VEC_MATRIX_MUL_(TYPE_VEC3_VAL, TYPE_MAT3_VAL);
+  CASE_VEC_MATRIX_MUL_(TYPE_VEC4_VAL, TYPE_MAT4_VAL);
+  CASE_MATRIX_MATRIX_MUL_(TYPE_MAT2_VAL);
+  CASE_MATRIX_MATRIX_MUL_(TYPE_MAT3_VAL);
+  CASE_MATRIX_MATRIX_MUL_(TYPE_MAT4_VAL);
 
   return ret;
 }
 
-static te_fn_obj te_get_div_func(te_type typeA, te_type typeB) {
-  te_fn_obj ret;
+static FnObj te_get_div_func(Type typeA, Type typeB) {
+  FnObj ret;
   ret.ptr = nullptr;
 
-  CASE_SCALAR_SCALAR_(TE_INT, te::detail::div<te_int>, TE_INT);
-  CASE_SCALAR_SCALAR_(TE_FLOAT, te::detail::div<te_float>, TE_FLOAT);
-  CASE_VEC_VEC_(TE_VEC2, te::detail::div<te_float>, TE_VEC2);
-  CASE_VEC_VEC_(TE_VEC3, te::detail::div<te_float>, TE_VEC3);
-  CASE_VEC_VEC_(TE_VEC4, te::detail::div<te_float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_VEC2, te::detail::div<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC3, te::detail::div<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_VEC4, te::detail::div<te_float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_VEC4);
-  CASE_VEC_SCALAR_(TE_MAT2, te::detail::div<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT3, te::detail::div<te_float>, TE_FLOAT);
-  CASE_VEC_SCALAR_(TE_MAT4, te::detail::div<te_float>, TE_FLOAT);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT2);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT3);
-  CASE_SCALAR_VEC_(TE_FLOAT, te::detail::div<te_float>, TE_MAT4);
+  CASE_SCALAR_SCALAR_(TYPE_INT_VAL, te::detail::div<IntT>, TYPE_INT_VAL);
+  CASE_SCALAR_SCALAR_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_VEC_(TYPE_VEC2_VAL, te::detail::div<FloatT>, TYPE_VEC2_VAL);
+  CASE_VEC_VEC_(TYPE_VEC3_VAL, te::detail::div<FloatT>, TYPE_VEC3_VAL);
+  CASE_VEC_VEC_(TYPE_VEC4_VAL, te::detail::div<FloatT>, TYPE_VEC4_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC2_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC3_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_VEC4_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_VEC2_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_VEC3_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_VEC4_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT2_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT3_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_VEC_SCALAR_(TYPE_MAT4_VAL, te::detail::div<FloatT>, TYPE_FLOAT_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_MAT2_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_MAT3_VAL);
+  CASE_SCALAR_VEC_(TYPE_FLOAT_VAL, te::detail::div<FloatT>, TYPE_MAT4_VAL);
 
   return ret;
 }
@@ -2822,27 +1523,27 @@ static te_fn_obj te_get_div_func(te_type typeA, te_type typeB) {
 #undef CASE_SCALAR_SCALAR_
 
 static void post_increment(void *, void * args, void * ret) {
-  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
-  ++(*reinterpret_cast<te_int **>(args)[0]);
+  *reinterpret_cast<IntT *>(ret) = *reinterpret_cast<IntT **>(args)[0];
+  ++(*reinterpret_cast<IntT **>(args)[0]);
 }
 
 static void post_decrement(void *, void * args, void * ret) {
-  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
-  --(*reinterpret_cast<te_int **>(args)[0]);
+  *reinterpret_cast<IntT *>(ret) = *reinterpret_cast<IntT **>(args)[0];
+  --(*reinterpret_cast<IntT **>(args)[0]);
 }
 
 static void pre_increment(void *, void * args, void * ret) {
-  ++(*reinterpret_cast<te_int **>(args)[0]);
-  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
+  ++(*reinterpret_cast<IntT **>(args)[0]);
+  *reinterpret_cast<IntT *>(ret) = *reinterpret_cast<IntT **>(args)[0];
 }
 
 static void pre_decrement(void *, void * args, void * ret) {
-  --(*reinterpret_cast<te_int **>(args)[0]);
-  *reinterpret_cast<te_int *>(ret) = *reinterpret_cast<te_int **>(args)[0];
+  --(*reinterpret_cast<IntT **>(args)[0]);
+  *reinterpret_cast<IntT *>(ret) = *reinterpret_cast<IntT **>(args)[0];
 }
 
 static void bool_not(void *, void * args, void * ret) {
-  *reinterpret_cast<te_int *>(ret) = !reinterpret_cast<te_int *>(args)[0];
+  *reinterpret_cast<IntT *>(ret) = !reinterpret_cast<IntT *>(args)[0];
 }
 
 /*static te_expr * expr(te_parser_state & s);
@@ -2850,32 +1551,32 @@ static te_expr * power(te_parser_state & s);
 
 static te_expr * base(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered base\n");
+  tesl_printf("entered base\n");
 #endif
 
   // <base>      =    <literal> | <variable> | <function-X> "(" {<expr> {"," | "," <expr>}+} ")" | "(" <expr> ")"
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * ret = nullptr;
   switch (s.token.kind) {
-    case te_token::LITERAL: {
+    case Token::LITERAL: {
 #ifdef TE_DEBUG_PEDANTIC
       te_print("base is literal ");
       te_print(s.token.type);
       te_print(\n");
 #endif
       switch (s.token.type) {
-        case TE_INT:
+        case TYPE_INT_VAL:
           ret = new_int_literal_expr(s.token.int_value);
           break;
         case TE_FLOAT:
           ret = new_float_literal_expr(s.token.float_value);
           break;
-        case TE_STR:
+        case TYPE_STR_VAL:
           ret = new_str_literal_expr(s.token.name);
           break;
         default:
-          te_error_record er(s);
-#ifdef TE_DEBUG_COMPILE
+          ErrorRecord er(s);
+#ifdef TESL_DEBUG_COMPILE
           te_print("internal error: unknown literal type: ");
           te_print(s.token.type);
           te_print(!\n");
@@ -2885,28 +1586,28 @@ static te_expr * base(te_parser_state & s) {
       }
       s.advance();
     } break;
-    case te_token::TYPENAME:
-    case te_token::IDENTIFIER: {
-      bool is_typename = s.token == te_token::TYPENAME;
-      te_type type = s.token.type;
-      te_strview id = s.token.name;
+    case Token::TYPENAME:
+    case Token::IDENTIFIER: {
+      bool is_typename = s.token == Token::TYPENAME;
+      Type type = s.token.type;
+      StrViewT id = s.token.name;
 
       s.advance();
-      if (s.token == te_token::OPEN_PAREN) {
+      if (s.token == Token::OPEN_PAREN) {
 #ifdef TE_DEBUG_PEDANTIC
-        te_printf("base is function call\n");
+        tesl_printf("base is function call\n");
 #endif
         te_expr * args[TE_PARAM_COUNT_MAX]{nullptr};
 
         s.advance();
         int arg_count = 0;
-        te_type arg_types[TE_PARAM_COUNT_MAX]{TE_NULL};
+        Type arg_types[TE_PARAM_COUNT_MAX]{TYPE_NULL_VAL};
         bool valid = true;
-        while (s.token != te_token::CLOSE_PAREN && s.token != te_token::END) {
+        while (s.token != Token::CLOSE_PAREN && s.token != Token::END) {
           te_expr * arg = expr(s);
 
           if (arg_count < TE_PARAM_COUNT_MAX) {
-            arg_types[arg_count] = arg ? arg->type : TE_ERROR;
+            arg_types[arg_count] = arg ? arg->type : TYPE_ERROR;
             args[arg_count] = arg;
             ++arg_count;
           } else {
@@ -2915,13 +1616,13 @@ static te_expr * base(te_parser_state & s) {
             arg = nullptr;
           }
 
-          if (s.token == te_token::COMMA) {
+          if (s.token == Token::COMMA) {
             s.advance();
           }
         }
 
-        te_fn_obj fn;
-        if (s.token == te_token::CLOSE_PAREN) {
+        FnObj fn;
+        if (s.token == Token::CLOSE_PAREN) {
           er.set_end(s.token.name.end);
           if (is_typename) {
             fn = find_constructor(s, type, arg_types, arg_count);
@@ -2942,9 +1643,9 @@ static te_expr * base(te_parser_state & s) {
 
           s.advance();
         } else {
-          te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-          te_printf("error: missing ')'!\n");
+          ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+          tesl_printf("error: missing ')'!\n");
 #endif
           te_make_error(s);
           valid = false;
@@ -2953,9 +1654,9 @@ static te_expr * base(te_parser_state & s) {
         if (valid) {
           ret = new_call_expr(fn, args, arg_count);
 #ifdef TE_DEBUG_PEDANTIC
-          te_printf("function value: ");
-          te_print({ret ? reinterpret_cast<te_call_expr *>(ret)->fn : te_fn_obj{}, TE_FUNCTION});
-          te_printf("\n");
+          tesl_printf("function value: ");
+          te_print({ret ? reinterpret_cast<te_call_expr *>(ret)->fn : FnObj{}, TYPE_FUNCTION});
+          tesl_printf("\n");
 #endif
         } else {
           for (int j = arg_count - 1; j >= 0; --j) {
@@ -2969,9 +1670,9 @@ static te_expr * base(te_parser_state & s) {
         if (var.is_valid()) {
           ret = var.new_ref_expr(s);
 #ifdef TE_DEBUG_PEDANTIC
-          te_printf("base is global var, value: ");
+          tesl_printf("base is global var, value: ");
           te_print_expr(ret);
-          te_printf("\n");
+          tesl_printf("\n");
 #endif
         } else {
           s.parse_error = true;
@@ -2979,21 +1680,21 @@ static te_expr * base(te_parser_state & s) {
 
       }
     } break;
-    case te_token::OPEN_PAREN: {
+    case Token::OPEN_PAREN: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("base is grouping expr\n");
+      tesl_printf("base is grouping expr\n");
 #endif
       s.advance();
       ret = expr(s);
 
-      if (s.token == te_token::CLOSE_PAREN) {
+      if (s.token == Token::CLOSE_PAREN) {
         s.advance();
       } else if (ret != nullptr) {
-        te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: expected ')', got ");
+        ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: expected ')', got ");
         te_print(s.token);
-        te_printf("!\n");
+        tesl_printf("!\n");
 #endif
         te_make_error(s);
         te_free(ret);
@@ -3002,10 +1703,10 @@ static te_expr * base(te_parser_state & s) {
       }
     } break;
     default:
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected expression, got ");
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected expression, got ");
       te_print(s.token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
       s.advance();
@@ -3013,7 +1714,7 @@ static te_expr * base(te_parser_state & s) {
   }
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited base\n");
+  tesl_printf("exited base\n");
 #endif
 
   return ret;
@@ -3021,24 +1722,24 @@ static te_expr * base(te_parser_state & s) {
 
 static te_expr * index(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered index\n");
+  tesl_printf("entered index\n");
 #endif
 
   // <index>     =    <base> { "[" <int> "]" }
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * ret = base(s);
 
-  if (s.token == te_token::OPEN_SQUARE_BRACKET) {
-    te_type ret_type = ret ? ret->type : TE_ERROR;
+  if (s.token == Token::OPEN_SQUARE_BRACKET) {
+    Type ret_type = ret ? ret->type : TYPE_ERROR;
 
     s.advance();
 
     te_expr * idx_expr = nullptr;
 
-    if (s.token == te_token::CLOSE_SQUARE_BRACKET) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: missing index!\n");
+    if (s.token == Token::CLOSE_SQUARE_BRACKET) {
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: missing index!\n");
 #endif
       te_make_error(s);
       te_free(ret);
@@ -3048,37 +1749,37 @@ static te_expr * index(te_parser_state & s) {
 
     idx_expr = expr(s);
 
-    te_type idx_type = idx_expr ? idx_expr->type : TE_ERROR;
+    Type idx_type = idx_expr ? idx_expr->type : TYPE_ERROR;
 
-    te_fn_obj index_fn;
-    if ((idx_type | TE_CONSTANT) == TE_INT) {
+    FnObj index_fn;
+    if ((idx_type | TYPE_FLAG_CONSTANT) == TYPE_INT_VAL) {
       index_fn = te_get_index_func(ret_type);
     } else {
       // set to a valid noop fn to avoid double error print
-      index_fn = te_fn_obj{};
+      index_fn = FnObj{};
       index_fn.ptr = &te_noop;
-      if (idx_type != TE_ERROR) {
-        te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: index must be an int! type: ");
+      if (idx_type != TYPE_ERROR) {
+        ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: index must be an int! type: ");
         te_print(idx_type);
-        te_printf("\n");
+        tesl_printf("\n");
 #endif
         te_make_error(s);
       }
       te_free(idx_expr);
       idx_expr = nullptr;
-      idx_type = idx_expr ? idx_expr->type : TE_ERROR;
+      idx_type = idx_expr ? idx_expr->type : TYPE_ERROR;
       te_free(ret);
       ret = nullptr;
     }
 
-    if (s.token != te_token::CLOSE_SQUARE_BRACKET) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ']', got ");
+    if (s.token != Token::CLOSE_SQUARE_BRACKET) {
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ']', got ");
       te_print(s.token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
       te_free(idx_expr);
@@ -3091,11 +1792,11 @@ static te_expr * index(te_parser_state & s) {
     s.advance();
 
     if (!index_fn.is_valid()) {
-#ifdef TE_DEBUG_COMPILE
+#ifdef TESL_DEBUG_COMPILE
       er.set_end(s.prev_token.name.end);
-      te_printf("error: cannot index! type: ");
+      tesl_printf("error: cannot index! type: ");
       te_print(idx_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       te_free(idx_expr);
@@ -3108,7 +1809,7 @@ static te_expr * index(te_parser_state & s) {
   }
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited index\n");
+  tesl_printf("exited index\n");
 #endif
 
   return ret;
@@ -3116,22 +1817,22 @@ static te_expr * index(te_parser_state & s) {
 
 static te_expr * attr(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered attr\n");
+  tesl_printf("entered attr\n");
 #endif
 
   // <attr>      =    <index> { "." ("x" | "y" | "z" | "w" | "r" | "g" | "b" | "a")[1-4] }
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * ret = index(s);
-  te_type ret_type = ret ? ret->type : TE_ERROR;
+  Type ret_type = ret ? ret->type : TYPE_ERROR;
 
-  if (s.token == te_token::DOT) {
+  if (s.token == Token::DOT) {
     s.advance();
-    if (s.token != te_token::IDENTIFIER) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected swizzlers after '.' got ");
+    if (s.token != Token::IDENTIFIER) {
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected swizzlers after '.' got ");
       te_print(s.token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
       te_free(ret);
@@ -3139,24 +1840,24 @@ static te_expr * attr(te_parser_state & s) {
       return nullptr;
     }
 
-    te_type base_type = ret ? ret->type : TE_ERROR;
+    Type base_type = ret ? ret->type : TYPE_ERROR;
     int swizzle_max = 0;
     switch (base_type) {
-      case TE_VEC2:
+      case TYPE_VEC2_VAL:
         swizzle_max = 2;
         break;
-      case TE_VEC3:
+      case TYPE_VEC3_VAL:
         swizzle_max = 3;
         break;
-      case TE_VEC4:
+      case TYPE_VEC4_VAL:
         swizzle_max = 4;
         break;
       default: {
-        te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: cannot swizzle ");
+        ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: cannot swizzle ");
         te_print(base_type);
-        te_printf("!\n");
+        tesl_printf("!\n");
 #endif
         te_make_error(s);
         te_free(ret);
@@ -3187,11 +1888,11 @@ static te_expr * attr(te_parser_state & s) {
             indices[i] = 3;
             break;
           default: {
-            te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
+            ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
             er.start = c;
             er.end = c + 1;
-            te_printf("error: unknown swizzler '%c'!\n", *c);
+            tesl_printf("error: unknown swizzler '%c'!\n", *c);
 #endif
             te_make_error(s);
             s.advance();
@@ -3204,11 +1905,11 @@ static te_expr * attr(te_parser_state & s) {
     }
 
     if (i < 1 || i > swizzle_max) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: too many swizzlers! type: ");
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: too many swizzlers! type: ");
       te_print(base_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       s.advance();
@@ -3222,10 +1923,10 @@ static te_expr * attr(te_parser_state & s) {
     for (int j = 0; j < i; ++j) {
       te_value idx_value;
       idx_value.int_ = indices[j];
-      args[j + 1] = new_value_expr(TE_INT, idx_value);
+      args[j + 1] = new_value_expr(TYPE_INT_VAL, idx_value);
     }
 
-    te_fn_obj index_fn;
+    FnObj index_fn;
     switch (i) {
       case 1:
         index_fn = te_get_index_func(ret_type);
@@ -3240,16 +1941,16 @@ static te_expr * attr(te_parser_state & s) {
         index_fn = te_get_swizzle4_func(ret_type);
         break;
       default:
-        index_fn = te_fn_obj{};
+        index_fn = FnObj{};
         break; // unreachable
     }
 
     if (!index_fn.is_valid()) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("internal error: no index func! type: ");
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("internal error: no index func! type: ");
       te_print(ret_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       for (int j = i - 1; j >= 0; --j) {
@@ -3266,7 +1967,7 @@ static te_expr * attr(te_parser_state & s) {
   }
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited attr\n");
+  tesl_printf("exited attr\n");
 #endif
 
   return ret;
@@ -3274,47 +1975,47 @@ static te_expr * attr(te_parser_state & s) {
 
 static te_expr * factor(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered factor\n");
+  tesl_printf("entered factor\n");
 #endif
 
   // <factor>    =    {("!" | "-" | "--" | "+" | "++")} <attr> {("--" | "++")}
-  te_error_record er{s};
+  ErrorRecord er{s};
 
   bool bool_not_flag = false;
   bool pos = true;
   bool pre_incdec = false;
-  if (s.token == te_token::PLUS) {
+  if (s.token == Token::PLUS) {
     pos = true;
     s.advance();
-  } else if (s.token == te_token::MINUS) {
+  } else if (s.token == Token::MINUS) {
     pos = false;
     s.advance();
-  } else if (s.token == te_token::PLUS_PLUS) {
+  } else if (s.token == Token::PLUS_PLUS) {
     pos = true;
     pre_incdec = true;
     s.advance();
-  } else if (s.token == te_token::MINUS_MINUS) {
+  } else if (s.token == Token::MINUS_MINUS) {
     pos = false;
     pre_incdec = true;
     s.advance();
-  } else if (s.token == te_token::BANG) {
+  } else if (s.token == Token::BANG) {
     bool_not_flag = true;
     s.advance();
   }
 
   te_expr * ret = attr(s);
-  te_type ret_type = ret ? ret->type : TE_ERROR;
+  Type ret_type = ret ? ret->type : TYPE_ERROR;
 
   er.set_end(s.token.name.end);
 
   if (bool_not_flag) {
-    if (ret_type == TE_INT) {
-      ret = new_call_expr(te::detail::make_function_raw(bool_not, nullptr, true, TE_INT, {TE_INT}), {ret});
+    if (ret_type == TYPE_INT_VAL) {
+      ret = new_call_expr(te::detail::make_function_raw(bool_not, nullptr, true, TYPE_INT_VAL, {TYPE_INT_VAL}), {ret});
     } else {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: '!' op only works on int! type: ");
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: '!' op only works on int! type: ");
       te_print(ret_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       te_free(ret);
@@ -3322,11 +2023,11 @@ static te_expr * factor(te_parser_state & s) {
       return nullptr;
     }
   } else if (pre_incdec) {
-    if (ret_type != TE_INT_REF) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: only int ref can be incremented/decremented! type: ");
+    if (ret_type != TYPE_INT_REF) {
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: only int ref can be incremented/decremented! type: ");
       te_print(ret_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       te_free(ret);
@@ -3335,21 +2036,21 @@ static te_expr * factor(te_parser_state & s) {
     }
 
     if (pos) {
-      ret = new_call_expr(te::detail::make_function_raw(pre_increment, nullptr, true, TE_INT, {TE_INT_REF}), {ret});
+      ret = new_call_expr(te::detail::make_function_raw(pre_increment, nullptr, true, TYPE_INT_VAL, {TYPE_INT_REF}), {ret});
     } else {
-      ret = new_call_expr(te::detail::make_function_raw(pre_decrement, nullptr, true, TE_INT, {TE_INT_REF}), {ret});
+      ret = new_call_expr(te::detail::make_function_raw(pre_decrement, nullptr, true, TYPE_INT_VAL, {TYPE_INT_REF}), {ret});
     }
   } else {
     if (pos) {
       // do nothing
     } else {
-      te_fn_obj tmpfn = te_get_negate_func(ret_type);
+      FnObj tmpfn = te_get_negate_func(ret_type);
 
       if (!tmpfn.is_valid()) {
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: cannot negate ");
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: cannot negate ");
         te_print(ret_type);
-        te_printf("!\n");
+        tesl_printf("!\n");
 #endif
         te_make_error(s);
         te_free(ret);
@@ -3361,13 +2062,13 @@ static te_expr * factor(te_parser_state & s) {
     }
   }
 
-  ret_type = ret ? ret->type : TE_ERROR;
+  ret_type = ret ? ret->type : TYPE_ERROR;
 
   int postfix = 0;
-  if (s.token == te_token::PLUS_PLUS) {
+  if (s.token == Token::PLUS_PLUS) {
     postfix = 1;
     s.advance();
-  } else if (s.token == te_token::MINUS_MINUS) {
+  } else if (s.token == Token::MINUS_MINUS) {
     postfix = -1;
     s.advance();
   }
@@ -3375,11 +2076,11 @@ static te_expr * factor(te_parser_state & s) {
   er.set_end(s.token.name.end);
 
   if (postfix) {
-    if (ret_type != TE_INT_REF) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: only int ref can be incremented/decremented! type: ");
+    if (ret_type != TYPE_INT_REF) {
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: only int ref can be incremented/decremented! type: ");
       te_print(ret_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
       te_free(ret);
@@ -3387,16 +2088,16 @@ static te_expr * factor(te_parser_state & s) {
       return nullptr;
     }
 
-    te_type param_type = TE_INT_REF;
+    Type param_type = TYPE_INT_REF;
     if (postfix > 0) {
-      ret = new_call_expr(te::detail::make_function_raw(post_increment, nullptr, true, TE_INT, {TE_INT_REF}), {ret});
+      ret = new_call_expr(te::detail::make_function_raw(post_increment, nullptr, true, TYPE_INT_VAL, {TYPE_INT_REF}), {ret});
     } else {
-      ret = new_call_expr(te::detail::make_function_raw(post_decrement, nullptr, true, TE_INT, {TE_INT_REF}), {ret});
+      ret = new_call_expr(te::detail::make_function_raw(post_decrement, nullptr, true, TYPE_INT_VAL, {TYPE_INT_REF}), {ret});
     }
   }
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited factor\n");
+  tesl_printf("exited factor\n");
 #endif
 
   return ret;
@@ -3404,20 +2105,20 @@ static te_expr * factor(te_parser_state & s) {
 
 static te_expr * term(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered term\n");
+  tesl_printf("entered term\n");
 #endif
 
   // <term>      =    <factor> {("*" | "/" | "%") <factor>}+
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * ret = factor(s);
-  te_type ret_type = ret ? ret->type : TE_ERROR;
+  Type ret_type = ret ? ret->type : TYPE_ERROR;
 
   do {
     er.set_point(s.token.name.ptr);
 
-    te_token::kind_t tt = te_token::NONE;
+    Token::Kind tt = Token::NONE;
     char c = '?';
-    if (s.token == te_token::STAR || s.token == te_token::SLASH || s.token == te_token::PERCENT) {
+    if (s.token == Token::STAR || s.token == Token::SLASH || s.token == Token::PERCENT) {
       tt = s.token.kind;
       c = *s.token.name.ptr;
     } else {
@@ -3425,34 +2126,34 @@ static te_expr * term(te_parser_state & s) {
     }
     s.advance();
     te_expr * rhs = factor(s);
-    te_type rhs_type = rhs ? rhs->type : TE_ERROR;
+    Type rhs_type = rhs ? rhs->type : TYPE_ERROR;
 
     er.set_end(s.prev_token.name.end);
 
-    te_fn_obj fn;
+    FnObj fn;
     switch (tt) {
-      case te_token::STAR:
-        fn = te_get_mul_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
+      case Token::STAR:
+        fn = te_get_mul_func(Type(ret_type | TYPE_FLAG_CONSTANT), Type(rhs_type | TYPE_FLAG_CONSTANT));
         break;
-      case te_token::SLASH:
-        fn = te_get_div_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
+      case Token::SLASH:
+        fn = te_get_div_func(Type(ret_type | TYPE_FLAG_CONSTANT), Type(rhs_type | TYPE_FLAG_CONSTANT));
         break;
-      case te_token::PERCENT:
-        fn = te_get_mod_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
+      case Token::PERCENT:
+        fn = te_get_mod_func(Type(ret_type | TYPE_FLAG_CONSTANT), Type(rhs_type | TYPE_FLAG_CONSTANT));
         break;
       default:
-        fn = te_fn_obj{};
+        fn = FnObj{};
         break;
     }
 
     if (!fn.is_valid()) {
-      if (ret_type != TE_ERROR && rhs_type != TE_ERROR) {
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: op '%c' not found for ", c);
+      if (ret_type != TYPE_ERROR && rhs_type != TYPE_ERROR) {
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: op '%c' not found for ", c);
         te_print(ret_type);
-        te_printf(" and ");
+        tesl_printf(" and ");
         te_print(rhs_type);
-        te_printf("!\n");
+        tesl_printf("!\n");
 #endif
         te_make_error(s);
       }
@@ -3465,11 +2166,11 @@ static te_expr * term(te_parser_state & s) {
       ret = new_call_expr(fn, {ret, rhs});
     }
 
-    ret_type = ret ? ret->type : TE_ERROR;
+    ret_type = ret ? ret->type : TYPE_ERROR;
   } while (true);
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited term\n");
+  tesl_printf("exited term\n");
 #endif
 
   return ret;
@@ -3477,20 +2178,20 @@ static te_expr * term(te_parser_state & s) {
 
 static te_expr * expr(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered expr\n");
+  tesl_printf("entered expr\n");
 #endif
 
   // <expr>      =    <term> {("+" | "-") <term>}+
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * ret = term(s);
-  te_type ret_type = ret ? ret->type: TE_ERROR;
+  Type ret_type = ret ? ret->type: TYPE_ERROR;
 
   do {
     er.set_point(s.token.name.ptr);
 
-    te_token::kind_t tt = te_token::NONE;
+    Token::Kind tt = Token::NONE;
     char c = '?';
-    if (s.token == te_token::PLUS || s.token == te_token::MINUS) {
+    if (s.token == Token::PLUS || s.token == Token::MINUS) {
       tt = s.token.kind;
       c = *s.token.name.ptr;
     } else {
@@ -3498,31 +2199,31 @@ static te_expr * expr(te_parser_state & s) {
     }
     s.advance();
     te_expr * rhs = term(s);
-    te_type rhs_type = rhs ? rhs->type : TE_ERROR;
+    Type rhs_type = rhs ? rhs->type : TYPE_ERROR;
 
     er.set_end(s.prev_token.name.end);
 
-    te_fn_obj fn;
+    FnObj fn;
     switch (tt) {
-      case te_token::PLUS:
-        fn = te_get_add_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
+      case Token::PLUS:
+        fn = te_get_add_func(Type(ret_type | TYPE_FLAG_CONSTANT), Type(rhs_type | TYPE_FLAG_CONSTANT));
         break;
-      case te_token::MINUS:
-        fn = te_get_sub_func(te_type(ret_type | TE_CONSTANT), te_type(rhs_type | TE_CONSTANT));
+      case Token::MINUS:
+        fn = te_get_sub_func(Type(ret_type | TYPE_FLAG_CONSTANT), Type(rhs_type | TYPE_FLAG_CONSTANT));
         break;
       default:
-        fn = te_fn_obj{};
+        fn = FnObj{};
         break;
     }
 
     if (!fn.is_valid()) {
-      if (ret_type != TE_ERROR && rhs_type != TE_ERROR) {
-#ifdef TE_DEBUG_COMPILE
-        te_printf("error: op '%c' not found for ", c);
+      if (ret_type != TYPE_ERROR && rhs_type != TYPE_ERROR) {
+#ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: op '%c' not found for ", c);
         te_print(ret_type);
-        te_printf(" and ");
+        tesl_printf(" and ");
         te_print(rhs_type);
-        te_printf("!\n");
+        tesl_printf("!\n");
 #endif
         te_make_error(s);
       }
@@ -3534,11 +2235,11 @@ static te_expr * expr(te_parser_state & s) {
       ret = new_call_expr(fn, {ret, rhs});
     }
 
-    ret_type = ret ? ret->type : TE_ERROR;
+    ret_type = ret ? ret->type : TYPE_ERROR;
   } while (true);
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited expr\n");
+  tesl_printf("exited expr\n");
 #endif
 
   return ret;
@@ -3573,1066 +2274,8 @@ namespace tesl {
       static constexpr auto value = V;
     };*/
 
-    template<auto ... Vs>
-    struct value_pack {};
-
-    template<typename ... Ts>
-    struct type_pack {};
-
-    template<typename T>
-    void swap(T & a, T & b) {
-      alignas(T) char tmp[sizeof(T)];
-      memcpy(reinterpret_cast<void *>(tmp), reinterpret_cast<void *>(&a), sizeof(T));
-      memcpy(reinterpret_cast<void *>(&a), reinterpret_cast<void *>(&b), sizeof(T));
-      memcpy(reinterpret_cast<void *>(&b), reinterpret_cast<void *>(tmp), sizeof(T));
-    }
-
-    // capacity never shinks, DOES NOT USE MOVE ASSIGN WHEN REALLOCATING
-    template<typename T, int LocalCapacity = 1>
-    class vector {
-      static_assert(std::is_trivially_move_constructible_v<T> || std::is_trivially_move_assignable_v<T>);
-      int m_size = 0;
-      int m_capacity = LocalCapacity;
-      T *m_data = reinterpret_cast<T *>(m_local_data);
-      char m_local_data[sizeof(T) * LocalCapacity];
-
-    public:
-      T & operator[](int i) {
-        assert(m_data != nullptr);
-        assert(i >= 0 && i < m_size);
-        return m_data[i];
-      }
-      const T & operator[](int i) const {
-        assert(m_data != nullptr);
-        assert(i >= 0 && i < m_size);
-        return m_data[i];
-      }
-      T * data() { return m_data; }
-      const T * data() const { return m_data; }
-      int size() const { return m_size; }
-      int is_empty() const { return m_size <= 0; }
-      void reserve(int n) {
-        if (n <= m_capacity) {
-          return;
-        }
-
-        if (m_data == reinterpret_cast<T *>(m_local_data)) {
-          T *m_old_data = m_data;
-          m_data = reinterpret_cast<T *>(malloc(sizeof(T) * n));
-          memcpy(m_data, m_old_data, m_size * sizeof(T));
-        } else {
-          m_data = reinterpret_cast<T *>(realloc(m_data, sizeof(T) * n));
-        }
-
-        if (m_data == nullptr) {
-          abort();
-        }
-
-        m_capacity = n;
-      }
-
-      template<typename VT>
-      int find(VT && v, int from = 0) const {
-        for (int i = 0; i < m_size; ++i) {
-          if (v == m_data[i]) {
-            return i;
-          }
-        }
-
-        return -1;
-      }
-
-      T * begin() {
-        return m_data;
-      }
-
-      T * end() {
-        return m_data + m_size;
-      }
-
-      template<typename VT>
-      int has(VT && v) const {
-        return find(v) >= 0;
-      }
-
-      template<typename VT>
-      T & insert(int i, VT && v) {
-        assert(m_data != nullptr);
-        assert(i >= 0 && i <= m_size);
-        if (m_capacity <= m_size) {
-          reserve(m_capacity + (m_capacity >> 2) + 1);
-        }
-
-        assert(m_capacity > m_size);
-
-        int num_to_move = m_size - i;
-        if (num_to_move > 0) {
-          memmove(&m_data[i+1], &m_data[i], num_to_move * sizeof(T));
-        }
-        m_size++;
-
-        return *(new (static_cast<void *>(&m_data[i])) T(static_cast<VT>(v)));
-      }
-
-      void remove_at(int i) {
-        assert(m_data != nullptr);
-        assert(i >= 0 && i < m_size);
-        m_data[i].~T();
-
-        int num_to_move = m_size - i - 1;
-        if (num_to_move > 0) {
-          memmove(&m_data[i], &m_data[i+1], num_to_move * sizeof(T));
-        }
-        m_size--;
-      }
-
-      template<typename VT>
-      T & push_back(VT && v) {
-        return insert(m_size, static_cast<VT>(v));
-      }
-
-      template<typename VT>
-      T & push_front(VT && v) {
-        return insert(0, static_cast<VT>(v));
-      }
-
-      void clear() {
-        while (m_size > 0) {
-          m_data[m_size - 1].~T();
-          m_size--;
-        }
-      }
-
-      vector & operator=(const vector & other) {
-        clear();
-        reserve(other.m_size);
-        while (m_size < other.m_size) {
-          m_size++;
-          new (static_cast<void *>(&m_data[m_size - 1])) T(other.m_data[m_size - 1]);
-        }
-        return *this;
-      }
-
-      vector & operator=(vector && other) {
-        swap(*this, other);
-        return *this;
-      }
-
-      vector(const vector & other) {
-        this->operator=(other);
-      }
-
-      vector(vector && other) {
-        this->operator=(other);
-      }
-
-      vector()  = default;
-
-      ~vector() {
-        if (m_data != reinterpret_cast<T *>(m_local_data)) {
-          free(m_data);
-        }
-      }
-    };
   }
 
-  namespace parse {
-    struct parsed_sequence_t {
-      struct node {
-        enum kind_t : int8_t {
-          TOKEN,
-          EXPR,
-          OP,
-        } kind;
-
-        union {
-          te_token token{};
-          struct {
-            union {
-              te_op * op;
-              te_expr * expr;
-            };
-            uint8_t precedence;
-          };
-        };
-
-        node(const te_token & t) : kind(TOKEN), token(t) {}
-        node(te_expr * e, uint8_t p) : kind(EXPR), expr(e), precedence(p) {}
-        node(te_op * o, uint8_t p) : kind(te_is_expr(o) ? EXPR : OP), op(o), precedence(p) {}
-        node() = default;
-      };
-
-      const node * nodes = nullptr;
-      const int32_t size = 0;
-
-      operator const node *() { return nodes; }
-    };
-
-#ifdef TE_DEBUG_PARSER
-
-#define PARSE_DEBUG(s, sequence)\
-  do {\
-    te_printf("%s:\n", __func__);\
-    for (int i = 0; i < sequence.size; ++i) {\
-      switch (sequence[i].kind) {\
-        case parsed_sequence_t::node::TOKEN:\
-          te_printf("  token: ");\
-          te_print(sequence[i].token);\
-          te_printf("\n");\
-          break;\
-        case parsed_sequence_t::node::EXPR:\
-          te_printf("  expr: precedence-%d\n", sequence[i].precedence);\
-          break;\
-        case parsed_sequence_t::node::OP:\
-          te_printf("  op: precedence-%d\n", sequence[i].precedence);\
-          break;\
-      }\
-    }\
-  } while (false)
-
-#else
-
-#define PARSE_DEBUG(s, sequence)
-
-#endif
-
-    static te_op * parse_literal_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-
-      TE_FAIL_COND(sequence.size != 1, return nullptr);
-      TE_FAIL_COND(sequence[0].kind == parsed_sequence_t::node::TOKEN, return nullptr);
-      TE_FAIL_COND(sequence[0].token.kind == te_token::LITERAL, return nullptr);
-
-      switch (sequence[0].token.type) {
-        case TE_INT:
-          return new_int_literal_expr(s.curr_token.int_value);
-          break;
-        case TE_FLOAT:
-          return new_float_literal_expr(s.curr_token.float_value);
-          break;
-        case TE_STR:
-          return new_str_literal_expr(s.curr_token.name);
-          break;
-        default:
-          te_error_record er(s);
-#ifdef TE_DEBUG_COMPILE
-          te_print("internal error: unknown literal type: ");
-          te_print(s.curr_token.type);
-          te_print("!\n");
-#endif
-          te_make_error(s);
-          break;
-      }
-
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_identifier_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_grouping_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_subscript_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_call_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_construct_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_dot_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_postfix_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_prefix_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_arithmetic_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_comparison_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_bitwise_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_boolean_op_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_ternary_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_assignment_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    static te_op * parse_sequence_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-
-      TE_FAIL_COND(sequence.size >= 3, return nullptr);
-      TE_FAIL_COND(sequence.size % 2 == 1, return nullptr);
-
-      int sequence_size = (sequence.size + 1) / 2;
-      TE_FAIL_COND(sequence_size <= TE_PARAM_COUNT_MAX, return nullptr);
-
-      uint16_t offset = 0;
-      uint16_t size = 0;
-      te_expr * args[sequence_size];
-      te_type param_types[sequence_size];
-      for (int i = 0; i < sequence.size; ++i) {
-        if (i % 2 == 0) {
-          TE_FAIL_COND(sequence[i].kind == parsed_sequence_t::node::EXPR, return nullptr);
-          TE_FAIL_COND(sequence[i].expr != nullptr, return nullptr);
-          args[i / 2] = sequence[i].expr;
-          param_types[i] = args[i]->type;
-          if (i != (sequence.size - 1)) {
-            offset += te_size_of(param_types[i]);
-          } else {
-            size = te_size_of(param_types[i]);
-          }
-        } else {
-          TE_FAIL_COND(sequence[i].kind == parsed_sequence_t::node::TOKEN, return nullptr);
-          TE_FAIL_COND(sequence[i].token.kind == te_token::COMMA, return nullptr);
-        }
-      }
-
-      static_assert(sizeof(uint16_t) * 2 <= sizeof(void *));
-      void * ctx;
-      uint16_t * ctx_data = reinterpret_cast<uint16_t *>(&ctx);
-      ctx_data[0] = offset;
-      ctx_data[0] = size;
-      return new_call_expr_v(te::detail::make_function_raw(te::sequence, ctx, true, TE_NULL, param_types, sequence_size), args, sequence_size);
-    }
-
-    static te_op * parse_var_expr(te_parser_state & s, parsed_sequence_t sequence) {
-      PARSE_DEBUG(s, sequence);
-      // TODO: finish
-      return nullptr;
-    }
-
-    namespace rules {
-      constexpr int16_t max_sequence_size = TE_PARAM_COUNT_MAX * 2 + 2 + 2;
-      using parse_fn = te_op * (*)(te_parser_state & s, parsed_sequence_t sequence);
-
-      struct element_t {
-        enum kind_t : int8_t {
-          TOKEN,
-          ABSOLUTE_PRECEDENCE_RULE,
-          RELATIVE_PRECEDENCE_RULE,
-          OPTIONAL,
-          JUMP,
-        } kind = TOKEN;
-        union {
-          te_token::kind_t token = te_token::NONE;
-          int8_t n;
-          int8_t offset;
-          int8_t size;
-        };
-
-        constexpr element_t(const element_t &) = default;
-
-        constexpr element_t(te_token::kind_t t) : kind(TOKEN), token(t) {};
-        constexpr element_t(kind_t k, te_token::kind_t t) : kind(k), token(t) {};
-        constexpr element_t(kind_t k, int8_t v) : kind(k), n(v) {};
-
-        constexpr element_t() {};
-      };
-
-      struct pattern_ref_storage_t {
-        const element_t * elements = nullptr;
-        int16_t size = 0;
-        bool is_valid() const { return size == 0 || (size > 0 && elements != nullptr); }
-        bool operator==(const pattern_ref_storage_t &other) const { return elements == other.elements && size == other.size; }
-      };
-
-      struct rule_ref_storage_t {
-        parse_fn parse = nullptr;
-        pattern_ref_storage_t pattern;
-        bool is_valid() const { return parse != nullptr && pattern.is_valid(); }
-        bool operator==(const rule_ref_storage_t &other) const { return parse == other.parse && pattern == other.pattern; }
-      };
-
-      struct rule_ref_list_storage_t {
-        const rule_ref_storage_t * rules = nullptr;
-        int16_t size = 0;
-        bool is_valid() const { return rules != nullptr || size == 0; }
-        bool operator==(const rule_ref_list_storage_t &other) const { return rules == other.rules && size == other.size; }
-      };
-
-      struct rule_library_info_t {
-        const char * rule_label;
-        int size = 0;
-        int max_precedence = 0;
-      };
-      
-      struct rule_ref_list_t;
-      struct rule_ref_t;
-      struct pattern_ref_t;
-      struct element_ref_t;
-
-      struct rule_ref_list_t {
-        rule_ref_list_storage_t storage;
-        const rule_library_info_t * library_info = nullptr;
-        uint8_t precedence = -1;
-
-        bool is_valid() const { return storage.is_valid() && library_info != nullptr; }
-        int16_t size() const { return storage.size; }
-
-        bool operator==(const rule_ref_list_t &other) const { return library_info == other.library_info && storage == other.storage && precedence == other.precedence; }
-        rule_ref_t operator[](int i) const;
-
-        constexpr rule_ref_list_t(const rule_ref_list_storage_t &rl, const rule_library_info_t & info, uint8_t p) : storage(rl), library_info(&info), precedence(p) {}
-        constexpr rule_ref_list_t() = default;
-      };
-
-      struct rule_ref_t {
-        rule_ref_storage_t storage;
-        rule_ref_list_t list;
-
-        bool is_valid() const { return storage.is_valid() && list.is_valid(); }
-        pattern_ref_t get_pattern() const;
-        te_op * parse(te_parser_state & s, parsed_sequence_t sequence) const {
-          return storage.parse(s, sequence);
-        }
-
-        bool operator==(const rule_ref_t &other) const { return list == other.list && storage == other.storage; }
-
-        constexpr rule_ref_t(const rule_ref_list_t &l, const rule_ref_storage_t &r) : storage(r), list(l) {}
-        constexpr rule_ref_t() = default;
-      };
-
-      struct pattern_ref_t {
-        pattern_ref_storage_t storage;
-        rule_ref_t rule;
-
-        bool is_valid() const { return storage.is_valid() && rule.is_valid(); }
-        int16_t size() const { return storage.size; }
-
-        bool operator==(const pattern_ref_t &other) const { return rule == other.rule && storage == other.storage; }
-        element_ref_t operator[](int i) const;
-
-        constexpr pattern_ref_t(const rule_ref_t &r, const pattern_ref_storage_t &p) : storage(p), rule(r) {}
-        constexpr pattern_ref_t() = default;
-      };
-
-      struct element_ref_t {
-        pattern_ref_t pattern;
-        int element_index = 0;
-
-        bool is_valid() const { return element_index > 0 && element_index < pattern.size() && pattern.is_valid(); }
-        element_ref_t follow() const;
-
-        void _get_branch_choices_impl(util::vector<element_ref_t, 0> & choices) const;
-        util::vector<element_ref_t, 0> get_branch_choices() const {
-          static thread_local util::vector<element_ref_t, 0> choices;
-          choices.clear();
-          _get_branch_choices_impl(choices);
-          return choices;
-        }
-
-        element_ref_t choose_branch(te_token::kind_t tok) const;
-        void print_branch_choices() const;
-        void print() const;
-
-        bool operator==(const element_ref_t &other) const { return pattern == other.pattern && element_index == other.element_index; }
-        const element_t * operator->() const { return &pattern.storage.elements[element_index]; }
-        operator const element_t &() const { return pattern.storage.elements[element_index]; }
-      };
-
-      rule_ref_t rule_ref_list_t::operator[](int i) const { return {*this, storage.rules[i]}; }
-      pattern_ref_t rule_ref_t::get_pattern() const { return {*this, storage.pattern}; }
-      element_ref_t pattern_ref_t::operator[](int i) const  { return {*this, i}; }
-
-      element_ref_t element_ref_t::follow() const {
-        int loop_count = 0;
-        int i = element_index;
-        const element_t * e = &pattern.storage.elements[i];
-        while (e && e->kind == element_t::JUMP) {
-          assert(loop_count < 100);
-          assert(e->offset != 0);
-          i = i + e->offset;
-          e = &pattern.storage.elements[i];
-          loop_count++;
-        }
-
-        return {pattern, i};
-      }
-
-      void element_ref_t::_get_branch_choices_impl(util::vector<element_ref_t, 0> & choices) const {
-        if (choices.has(*this)) {
-          return;
-        }
-
-        element_ref_t points_to = follow();
-        switch (points_to->kind) {
-          case element_t::TOKEN:
-          case element_t::ABSOLUTE_PRECEDENCE_RULE:
-          case element_t::RELATIVE_PRECEDENCE_RULE:
-            choices.push_back(points_to);
-            return;
-          case element_t::OPTIONAL:
-            element_ref_t{pattern,  points_to.element_index + 1}._get_branch_choices_impl(choices);
-            element_ref_t{pattern, points_to.element_index + points_to->size + 1}._get_branch_choices_impl(choices);
-            return;
-          case element_t::JUMP:
-            __builtin_unreachable();
-        }
-      }
-
-      element_ref_t element_ref_t::choose_branch(te_token::kind_t tok) const {
-#ifdef TE_DEBUG_PARSER
-        te_printf("choosing between branches: ");
-        print_branch_choices();
-        te_printf(". ");
-#endif
-        element_ref_t found_token;
-        element_ref_t found_expr;
-        auto choices = get_branch_choices();
-        for (const element_ref_t & e : choices) {
-          switch (e->kind) {
-            case element_t::TOKEN: {
-              if (e->token == tok) {
-                found_token = e;
-                break;
-              }
-            } break;
-            case element_t::ABSOLUTE_PRECEDENCE_RULE:
-            case element_t::RELATIVE_PRECEDENCE_RULE: {
-              if (found_expr.is_valid()) {
-                te_printf("internal error: invalid pattern: more than one expression branch for optional!");
-              } else {
-                found_expr = e;
-              }
-            } break;
-            case element_t::OPTIONAL:
-            case element_t::JUMP:
-              break;
-          }
-        }
-        
-        if (found_token.is_valid()) {
-#ifdef TE_DEBUG_PARSER
-        te_printf("matched ");
-        found_token.print();
-        te_printf("\n");
-#endif
-          return found_token;
-        } else {
-#ifdef TE_DEBUG_PARSER
-        te_printf("matched ");
-        found_expr.print();
-        te_printf("\n");
-#endif
-          return found_expr;
-        }
-      }
-
-      void element_ref_t::print() const {
-        if (!is_valid()) {
-          te_printf("<invalid-element>");
-          return;
-        }
-
-        const element_ref_t & e = *this;
-        switch (e->kind) {
-          case element_t::TOKEN:
-            te_printf("'");
-            te_print(e->token);
-            te_printf("'");
-            break;
-          case element_t::ABSOLUTE_PRECEDENCE_RULE: {
-            te_printf("%s", pattern.rule.list.library_info->rule_label);
-#ifdef TE_DEBUG_PARSER
-            te_printf("[p%d]", e->offset);
-#endif
-          } break;
-          case element_t::RELATIVE_PRECEDENCE_RULE:
-            te_printf("%s", pattern.rule.list.library_info->rule_label);
-#ifdef TE_DEBUG_PARSER
-            te_printf("[p%d]", pattern.rule.list.library_info->size - (pattern.rule.list.precedence + e->offset));
-#endif
-            break;
-          case element_t::OPTIONAL:
-            te_printf("<opt:size=%d>", e->size);
-            break;
-          case element_t::JUMP:
-            te_printf("<jmp%+d>", e->offset);
-            break;
-        }
-      }
-
-      void element_ref_t::print_branch_choices() const {
-        bool is_first = true;
-        auto choices = get_branch_choices();
-        for (const element_ref_t & e : choices) {
-          if (!is_first) {
-            te_printf(" or ");
-          }
-          is_first = false;
-          e.print();
-        }
-      }
-
-      template<int ElementCount>
-      struct pattern_t {
-        static constexpr int size = ElementCount;
-        element_t elements[ElementCount];
-
-        TE_ALWAYS_INLINE constexpr operator const element_t *() const { return elements; }
-      };
-
-      template<typename ... Ts>
-      TE_ALWAYS_INLINE constexpr pattern_t<sizeof...(Ts)> make_pattern(Ts ... elements) {
-        static_assert(sizeof...(elements) > 0);
-        return {element_t{elements}...};
-      }
-
-      template<int ElementCount>
-      struct rule_t {
-        parse_fn parse = nullptr;
-        pattern_t<ElementCount> pattern;
-      };
-
-      template<typename T>
-      struct rule_list_t;
-
-      template<int V, int ... NextVs>
-      struct rule_list_t<util::value_pack<V, NextVs...>> : rule_list_t<util::value_pack<NextVs...>> {
-        using base = rule_list_t<util::value_pack<NextVs...>>;
-        
-        rule_t<V> this_rule;
-        static constexpr int size = sizeof...(NextVs) + 1;
-
-        TE_ALWAYS_INLINE constexpr rule_ref_storage_t operator[](int i) {
-          if (i < 0) {
-            return {};
-          } else if (i == 0) {
-            return {this_rule.parse, {this_rule.pattern.elements, V}};
-          } else {
-            return base::operator[](i - 1);
-          }
-        }
-
-        TE_ALWAYS_INLINE constexpr rule_list_t(rule_t<V> rule, rule_t<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
-      };
-
-      template<>
-      struct rule_list_t<util::value_pack<>> {
-        rule_t<0> pattern;
-        static constexpr int size = 0;
-
-        TE_ALWAYS_INLINE constexpr rule_ref_storage_t operator[](int i) {
-          return {};
-        }
-      };
-
-      // woof woof :3
-      template<typename T>
-      struct rule_library_impl;
-
-      template<int ... Vs, typename ... NextTs>
-      struct rule_library_impl<util::type_pack<util::value_pack<Vs...>, NextTs...>> : rule_library_impl<util::type_pack<NextTs...>> {
-        using base = rule_library_impl<util::type_pack<NextTs...>>;
-
-        rule_list_t<util::value_pack<Vs...>> this_list;
-        rule_ref_storage_t list_rules[sizeof...(Vs)];
-        static constexpr int size = sizeof...(NextTs) + 1;
-
-        TE_ALWAYS_INLINE constexpr rule_ref_list_storage_t operator[](int i) {
-          if (i < 0) {
-            return {};
-          } else if (i == 0) {
-            return {list_rules, sizeof...(Vs)};
-          } else {
-            return base::operator[](i - 1);
-          }
-        }
-
-        TE_ALWAYS_INLINE constexpr rule_library_impl(rule_list_t<util::value_pack<Vs...>> rule_list, rule_list_t<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
-          for (int i = 0; i < sizeof...(Vs); ++i) {
-            list_rules[i] = this_list[i];
-          }
-        }
-      };
-
-      template<>
-      struct rule_library_impl<util::type_pack<>> {
-        static constexpr int size = 0;
-
-        TE_ALWAYS_INLINE constexpr rule_ref_list_storage_t operator[](int i) {
-          return {};
-        }
-      };
-
-      struct rule_library_ref_t {
-        const rule_library_info_t &info;
-        const rule_ref_list_storage_t * lists;
-        const int size;
-        const int max_precedence;
-
-        TE_ALWAYS_INLINE constexpr rule_ref_list_t operator[](uint8_t p) const { return {lists[p], info, p}; }
-
-        template<typename T>
-        TE_ALWAYS_INLINE constexpr rule_library_ref_t(const T & library) : info(library.info), lists(library.lists), size(library.size), max_precedence(library.max_precedence) {}
-
-        rule_ref_t find_rule_precedence(te_parser_state & s, int precedence, int element_index) const;
-        parsed_sequence_t::node parse_precedence(te_parser_state & s, int precedence) const;
-        parsed_sequence_t::node parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, parsed_sequence_t::node initial) const;
-      };
-
-      template<typename ... Ts>
-      struct rule_library_t : public rule_library_impl<util::type_pack<Ts...>> {
-        using base = rule_library_impl<util::type_pack<Ts...>>;
-
-        static constexpr int size = sizeof...(Ts);
-        static constexpr int max_precedence = size - 1;
-
-        rule_library_info_t info;
-        rule_ref_list_storage_t lists[sizeof...(Ts)];
-        rule_library_ref_t ref;
-
-        static_assert(size <= 256, "too many precedence levels!");
-
-        const rule_library_ref_t * operator->() const {
-          return &ref;
-        }
-
-        TE_ALWAYS_INLINE constexpr rule_library_t(const char * l, rule_list_t<Ts> ... rule_lists) : base(rule_lists...), info(l, size, max_precedence), ref(*this) {
-          for (int i = 0; i < sizeof...(Ts); ++i) {
-            lists[i] = base::operator[](i);
-          }
-        }
-      };
-
-      template<int ElementCount>
-      TE_ALWAYS_INLINE constexpr rule_t<ElementCount> make_rule(parse_fn parse_fn, pattern_t<ElementCount> pattern) {
-        return {parse_fn, pattern};
-      }
-
-      template<int ... Vs>
-      TE_ALWAYS_INLINE constexpr auto make_rule_list(rule_t<Vs> ... rules) {
-        return rule_list_t<util::value_pack<Vs...>>{rules...};
-      }
-
-      template<typename ... Ts>
-      TE_ALWAYS_INLINE constexpr auto make_rule_library(const char * label, rule_list_t<Ts> ... lists) {
-        return rule_library_t<Ts...>{label, lists...};
-      }
-
-      template<int8_t Offset>
-      constexpr element_t relative_precedence_rule = element_t{element_t::RELATIVE_PRECEDENCE_RULE, Offset};
-      template<int8_t Precedence>
-      constexpr element_t precedence_rule = element_t{element_t::ABSOLUTE_PRECEDENCE_RULE, Precedence};
-
-      // matches an expression with lower precedence
-      constexpr element_t lower_rule = relative_precedence_rule<-1>;
-
-      // matches an expression with same or lower precedence
-      constexpr element_t similar_rule = relative_precedence_rule<0>;
-
-      // marks a block of length N starting at the next element that is optional
-      template<int8_t N>
-      constexpr element_t opt = element_t{element_t::OPTIONAL, N};
-
-      // jumps the element index to a relative offset N (used to make repeating patterns)
-      template<int8_t N>
-      constexpr element_t jmp = element_t{element_t::JUMP, N};
-
-      // exactly one of the first or second element of a pattern must be a token
-      // at most one of each token can appear in the first slot of all patterns (also applies to the second slot separately)
-      // the element immediately after an 'opt<...>' or after the block it creates must be a token
-      // the first expr must be a token or a similar_rule
-      constexpr auto expr_pattern_library = make_rule_library(
-        "expression",
-        make_rule_list(
-          make_rule(parse_literal_expr, make_pattern(te_token::LITERAL)),
-          make_rule(parse_identifier_expr, make_pattern(te_token::IDENTIFIER))
-        ),
-        make_rule_list(
-          make_rule(parse_grouping_expr, make_pattern(te_token::OPEN_PAREN, precedence_rule<-1>, te_token::CLOSE_PAREN))
-        ),
-        make_rule_list(
-          make_rule(parse_subscript_expr, make_pattern(similar_rule, te_token::OPEN_SQUARE_BRACKET, precedence_rule<-2>, te_token::OPEN_SQUARE_BRACKET)),
-          make_rule(parse_call_expr, make_pattern(similar_rule, te_token::OPEN_PAREN, opt<6>, precedence_rule<-2>, opt<4>, te_token::COMMA, precedence_rule<-2>, opt<1>, jmp<-3>, te_token::CLOSE_PAREN)),
-          make_rule(parse_construct_expr, make_pattern(te_token::TYPENAME, te_token::OPEN_PAREN, opt<6>, precedence_rule<-2>, opt<4>, te_token::COMMA, precedence_rule<-2>, opt<1>, jmp<-3>, te_token::CLOSE_PAREN)),
-          make_rule(parse_dot_expr, make_pattern(similar_rule, te_token::DOT, te_token::IDENTIFIER)),
-          make_rule(parse_postfix_expr, make_pattern(similar_rule, te_token::PLUS_PLUS)),
-          make_rule(parse_postfix_expr, make_pattern(similar_rule, te_token::MINUS_MINUS))
-        ),
-        make_rule_list(
-          make_rule(parse_prefix_expr, make_pattern(te_token::PLUS_PLUS, similar_rule)),
-          make_rule(parse_prefix_expr, make_pattern(te_token::MINUS_MINUS, similar_rule)),
-          make_rule(parse_prefix_expr, make_pattern(te_token::PLUS, similar_rule)),
-          make_rule(parse_prefix_expr, make_pattern(te_token::MINUS, similar_rule)),
-          make_rule(parse_prefix_expr, make_pattern(te_token::BANG, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_arithmetic_expr, make_pattern(similar_rule, te_token::STAR, similar_rule)),
-          make_rule(parse_arithmetic_expr, make_pattern(similar_rule, te_token::SLASH, similar_rule)),
-          make_rule(parse_arithmetic_expr, make_pattern(similar_rule, te_token::PERCENT, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_arithmetic_expr, make_pattern(similar_rule, te_token::PLUS, similar_rule)),
-          make_rule(parse_arithmetic_expr, make_pattern(similar_rule, te_token::MINUS, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, te_token::LESS_LESS, similar_rule)),
-          make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, te_token::GREATER_GREATER, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, te_token::AND, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, te_token::CARET, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, te_token::PIPE, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::LESS, similar_rule)),
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::GREATER, similar_rule)),
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::LESS_EQUAL, similar_rule)),
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::GREATER_EQUAL, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::EQUAL_EQUAL, similar_rule)),
-          make_rule(parse_comparison_expr, make_pattern(similar_rule, te_token::BANG_EQUAL, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_boolean_op_expr, make_pattern(similar_rule, te_token::AND_AND, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_boolean_op_expr, make_pattern(similar_rule, te_token::CARET_CARET, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_boolean_op_expr, make_pattern(similar_rule, te_token::PIPE_PIPE, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_ternary_expr, make_pattern(similar_rule, te_token::QUESTION_MARK, similar_rule, te_token::COLON, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::EQUAL, similar_rule)),
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::PLUS_EQUAL, similar_rule)),
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::MINUS_EQUAL, similar_rule)),
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::STAR_EQUAL, similar_rule)),
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::SLASH_EQUAL, similar_rule)),
-          make_rule(parse_assignment_expr, make_pattern(similar_rule, te_token::PERCENT_EQUAL, similar_rule))
-        ),
-        make_rule_list(
-          make_rule(parse_sequence_expr, make_pattern(similar_rule, te_token::COMMA, lower_rule, opt<1>, jmp<-3>))
-        )
-      );
-      constexpr int expr_pattern_library_size_bytes = sizeof(expr_pattern_library);
-
-      rule_ref_t rule_library_ref_t::find_rule_precedence(te_parser_state & s, int precedence, int element_index) const {
-        if (precedence < 0) {
-          precedence += size;
-        }
-        for (int p = precedence; p >= 0; --p) {
-          rule_ref_list_t pattern_list = operator[](p);
-          for (int i = 0; i < pattern_list.size(); ++i) {
-            rule_ref_t rule = pattern_list[i];
-            if (rule.get_pattern()[element_index]->token == s.curr_token) {
-              return rule;
-            }
-          }
-        }
-
-        return {};
-      }
-
-      parsed_sequence_t::node rule_library_ref_t::parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, parsed_sequence_t::node initial) const {
-        TE_FAIL_COND(!rule.is_valid(), return parsed_sequence_t::node(new_error_expr(), rule.list.precedence));
-
-        auto pattern_size = rule.get_pattern().size();
-        util::vector<parsed_sequence_t::node, 3> nodes;
-        nodes.reserve(pattern_size);
-        nodes.push_back(initial);
-
-#define FAIL_RETURN_ERROR_EXPR\
-  do {\
-    te_op * error_sources[nodes.size()];\
-    int error_sources_count = 0;\
-    for (int i = 0; i < nodes.size(); ++i) {\
-      switch(nodes[i].kind) {\
-        case parsed_sequence_t::node::TOKEN:\
-          break;\
-        case parsed_sequence_t::node::EXPR:\
-          error_sources[error_sources_count++] = nodes[i].expr;\
-          break;\
-        case parsed_sequence_t::node::OP:\
-          error_sources[error_sources_count++] = nodes[i].op;\
-          break;\
-      }\
-    }\
-    return {new_error_expr_v(error_sources, error_sources_count), rule.list.precedence};\
-  } while (false)
-
-        for (int i = 1; i < pattern_size;) {
-          element_ref_t e = rule.get_pattern()[i];
-          switch (e->kind) {
-            case rules::element_t::TOKEN: {
-              if (e->token != s.curr_token) {
-                te_error_record er(s);
-#ifdef TE_DEBUG_COMPILE
-                te_print("error: expected '");
-                te_print(e->token);
-                te_print("', got ");
-                te_print(s.curr_token);
-                te_print("!\n");
-#endif
-                te_make_error(s);
-                s.advance();
-                FAIL_RETURN_ERROR_EXPR;
-              }
-              nodes.push_back(s.curr_token);
-              s.advance();
-            } break;
-            case rules::element_t::ABSOLUTE_PRECEDENCE_RULE: {
-              nodes.push_back(parse_precedence(s, e->offset));
-            } break;
-            case rules::element_t::RELATIVE_PRECEDENCE_RULE: {
-              nodes.push_back(parse_precedence(s, rule.list.precedence + e->offset));
-            } break;
-            case rules::element_t::OPTIONAL: {
-              element_ref_t b = e.choose_branch(s.curr_token.kind);
-              if (!b.is_valid()) {
-                te_error_record er(s);
-#ifdef TE_DEBUG_COMPILE
-                te_printf("error: expected ");
-                e.print_branch_choices();
-                te_printf(", got ");
-                te_print(s.curr_token);
-                te_printf("!\n");
-#endif
-                te_make_error(s);
-                s.advance();
-                FAIL_RETURN_ERROR_EXPR;
-              }
-
-              i = b.element_index;
-              continue;
-            } break;
-            case rules::element_t::JUMP: {
-              i += e->offset;
-              continue;
-            } break;
-          }
-
-          i++;
-        }
-
-        te_op * ret = rule.parse(s, {nodes.data(), nodes.size()});
-        if (!ret) {
-          FAIL_RETURN_ERROR_EXPR;
-        }
-
-        return {ret, rule.list.precedence};
-
-#undef FAIL_RETURN_ERROR_EXPR
-      }
-
-      // never returns null
-      parsed_sequence_t::node rule_library_ref_t::parse_precedence(te_parser_state & s, int precedence) const {
-        if (precedence < 0) {
-          precedence += size;
-        }
-        TE_FAIL_COND(precedence >= 256, return parsed_sequence_t::node(new_error_expr(), precedence));
-
-        rule_ref_t rule = find_rule_precedence(s, precedence, 0);
-        if (!rule.is_valid()) {
-          te_error_record er(s);
-#ifdef TE_DEBUG_COMPILE
-          te_print("error: expected ");
-          te_print(info.rule_label);
-          te_print(" got '");
-          te_print(s.curr_token.kind);
-          te_print("'!\n");
-#endif
-          te_make_error(s);
-          s.advance();
-          return parsed_sequence_t::node(new_error_expr(), precedence);
-        }
-        parsed_sequence_t::node n = parse_precedence_impl(s, rule, s.consume());
-        while (true) {
-          rule = find_rule_precedence(s, precedence, 1);
-          if (!rule.is_valid()) {
-            break;
-          }
-          n = parse_precedence_impl(s, rule, n);
-        }
-
-        return n;
-      }
-    }
-
-    // never returns null
-    te_expr * parse_expr(te_parser_state & s, int precedence) {
-      using namespace rules;
-      parsed_sequence_t::node result = expr_pattern_library->parse_precedence(s, precedence);
-      switch (result.kind) {
-        case parsed_sequence_t::node::EXPR:
-          return result.expr;
-        case parsed_sequence_t::node::OP:
-          return new_error_expr(result.op);
-        case parsed_sequence_t::node::TOKEN:
-          return new_error_expr();
-      }
-
-      return new_error_expr();
-    }
-
-    // never returns null
-    te_expr * parse_top_level_expr(te_parser_state & s) {
-      return parse_expr(s, -1);
-    }
-  }
 }
 
 static te_expr * parse_fn(te_parser_state & s) {
@@ -4647,11 +2290,11 @@ static void begin_function(te_parser_state & s) {
 static te_expr * end_function(te_parser_state & s) {
   te_expr * ret = nullptr;
 
-#ifdef TE_DEBUG_COMPILE
+#ifdef TESL_DEBUG_COMPILE
   if (!s.parse_error) {
     for (int i = 0; i < s.stmt_count; ++i) {
       if (s.stmts[i] == nullptr) {
-        te_printf("internal error: null stmt despite no parser error!\n");
+        tesl_printf("internal error: null stmt despite no parser error!\n");
         s.parse_error = true;
       }
     }
@@ -4677,9 +2320,9 @@ static void push_stmt(te_parser_state & s, te_op * e) {
   if (s.stmt_count < TE_MAX_STMT_COUNT) {
     s.stmts[s.stmt_count++] = e;
   } else {
-    te_error_record er{s};
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: ran out of room for stmts! max=%d\n", TE_MAX_STMT_COUNT);
+    ErrorRecord er{s};
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: ran out of room for stmts! max=%d\n", TE_MAX_STMT_COUNT);
 #endif
     te_make_error(s);
   }
@@ -4687,9 +2330,9 @@ static void push_stmt(te_parser_state & s, te_op * e) {
 
 static void parse_stmt(te_parser_state & s);
 
-static void parse_suite(te_parser_state & s, te_token::kind_t end_token) {
+static void parse_suite(te_parser_state & s, Token::Kind end_token) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered suite\n");
+  tesl_printf("entered suite\n");
 #endif
 
   {
@@ -4700,10 +2343,10 @@ static void parse_suite(te_parser_state & s, te_token::kind_t end_token) {
       if (s.curr_token == end_token) {
         s.advance();
         break;
-      } else if (s.curr_token == te_token::END) {
-        te_error_record er2{s};
-  #ifdef TE_DEBUG_COMPILE
-        te_printf("error: end of input!\n");
+      } else if (s.curr_token == Token::END) {
+        ErrorRecord er2{s};
+  #ifdef TESL_DEBUG_COMPILE
+        tesl_printf("error: end of input!\n");
   #endif
         te_make_error(s);
         break;
@@ -4714,50 +2357,50 @@ static void parse_suite(te_parser_state & s, te_token::kind_t end_token) {
   }
 
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("exited suite: stmt_count=%d\n", s.stmt_count);
+  tesl_printf("exited suite: stmt_count=%d\n", s.stmt_count);
 #endif
 }
 
 static te_expr * parse_standalone_suite(te_parser_state & s) {
   begin_function(s);
-  parse_suite(s, te_token::END);
+  parse_suite(s, Token::END);
   return end_function(s);
 }
 
 static void parse_if_stmt(te_parser_state & s) {
   s.advance();
 
-  if (s.curr_token != te_token::OPEN_PAREN) {
-    te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: expected '(' got ");
+  if (s.curr_token != Token::OPEN_PAREN) {
+    ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: expected '(' got ");
     te_print(s.curr_token);
-    te_printf("!\n");
+    tesl_printf("!\n");
 #endif
     te_make_error(s);
   }
   s.advance();
 
-  te_error_record er{s};
+  ErrorRecord er{s};
   te_expr * cond_expr = tesl::parse::parse_top_level_expr(s);
   er.set_end(s.curr_token.name.end);
 
-  te_type cond_expr_result_type = cond_expr ? cond_expr->type : TE_ERROR;
-  if ((cond_expr_result_type | TE_CONSTANT) != TE_INT) {
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: conditional expr must be an int! type: ");
+  Type cond_expr_result_type = cond_expr ? cond_expr->type : TYPE_ERROR;
+  if ((cond_expr_result_type | TYPE_FLAG_CONSTANT) != TYPE_INT_VAL) {
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: conditional expr must be an int! type: ");
     te_print(cond_expr_result_type);
-    te_printf("\n");
+    tesl_printf("\n");
 #endif
     te_make_error(s);
   }
 
-  if (s.curr_token != te_token::CLOSE_PAREN) {
-    te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: expected ')' got ");
+  if (s.curr_token != Token::CLOSE_PAREN) {
+    ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: expected ')' got ");
     te_print(s.curr_token);
-    te_printf("!\n");
+    tesl_printf("!\n");
 #endif
     te_make_error(s);
   }
@@ -4768,7 +2411,7 @@ static void parse_if_stmt(te_parser_state & s) {
 
   parse_stmt(s);
 
-  if (s.curr_token == te_token::ELSE) {
+  if (s.curr_token == Token::ELSE) {
     s.advance();
     te_jmp_op * jmp_end_expr = new_jmp_op(te_jmp_op::unknown_offset);
     push_stmt(s, jmp_end_expr);
@@ -4781,15 +2424,15 @@ static void parse_if_stmt(te_parser_state & s) {
 }
 
 static void parse_var_stmt(te_parser_state & s, bool allow_assign) {
-  te_type decl_type = s.curr_token.type;
+  Type decl_type = s.curr_token.type;
   s.advance();
 
-  if (s.curr_token != te_token::IDENTIFIER) {
-    te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: expected <identifier> got ");
+  if (s.curr_token != Token::IDENTIFIER) {
+    ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: expected <identifier> got ");
     te_print(s.curr_token);
-    te_printf("!\n");
+    tesl_printf("!\n");
 #endif
     te_make_error(s);
     return;
@@ -4797,7 +2440,7 @@ static void parse_var_stmt(te_parser_state & s, bool allow_assign) {
   te_parser_state::local_var_t * var = te_stack_allocate_var(s, s.curr_token.name, decl_type);
   s.advance();
 
-  if (allow_assign && s.curr_token == te_token::EQUAL) {
+  if (allow_assign && s.curr_token == Token::EQUAL) {
     s.advance();
 
     te_expr *initializer = tesl::parse::parse_expr(s, -2);
@@ -4808,12 +2451,12 @@ static void parse_var_stmt(te_parser_state & s, bool allow_assign) {
 static void parse_for_stmt(te_parser_state & s) {
   s.advance();
 
-  if (s.curr_token != te_token::OPEN_PAREN) {
-    te_error_record er{s};
-#ifdef TE_DEBUG_COMPILE
-    te_printf("error: expected '(' got ");
+  if (s.curr_token != Token::OPEN_PAREN) {
+    ErrorRecord er{s};
+#ifdef TESL_DEBUG_COMPILE
+    tesl_printf("error: expected '(' got ");
     te_print(s.curr_token);
-    te_printf("!\n");
+    tesl_printf("!\n");
 #endif
     te_make_error(s);
   }
@@ -4824,37 +2467,37 @@ static void parse_for_stmt(te_parser_state & s) {
 
     parse_var_stmt(s, true);
 
-    if (s.curr_token != te_token::SEMICOLON) {
-      te_error_record er{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ';' got ");
+    if (s.curr_token != Token::SEMICOLON) {
+      ErrorRecord er{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ';' got ");
       te_print(s.curr_token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
     }
     s.advance();
 
-    te_error_record er{s};
+    ErrorRecord er{s};
     te_expr * cond_expr = tesl::parse::parse_top_level_expr(s);
     er.set_end(s.curr_token.name.end);
 
-    te_type cond_expr_result_type = cond_expr ? cond_expr->type : TE_ERROR;
-    if ((cond_expr_result_type | TE_CONSTANT) != TE_INT) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: conditional expr must be an int! type: ");
+    Type cond_expr_result_type = cond_expr ? cond_expr->type : TYPE_ERROR;
+    if ((cond_expr_result_type | TYPE_FLAG_CONSTANT) != TYPE_INT_VAL) {
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: conditional expr must be an int! type: ");
       te_print(cond_expr_result_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
     }
 
-    if (s.curr_token != te_token::SEMICOLON) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ';' got ");
+    if (s.curr_token != Token::SEMICOLON) {
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ';' got ");
       te_print(s.curr_token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
     }
@@ -4865,12 +2508,12 @@ static void parse_for_stmt(te_parser_state & s) {
 
     te_expr * update_expr = tesl::parse::parse_top_level_expr(s);
 
-    if (s.curr_token != te_token::CLOSE_PAREN) {
-      te_error_record er2{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ')' got ");
+    if (s.curr_token != Token::CLOSE_PAREN) {
+      ErrorRecord er2{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ')' got ");
       te_print(s.curr_token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
     }
@@ -4895,32 +2538,32 @@ static void parse_for_stmt(te_parser_state & s) {
 static void parse_return_stmt(te_parser_state & s) {
   s.advance();
 
-  te_error_record er{s};
+  ErrorRecord er{s};
 
-  if (s.curr_token == te_token::SEMICOLON) {
-    if (s.return_type != TE_NULL) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ");
+  if (s.curr_token == Token::SEMICOLON) {
+    if (s.return_type != TYPE_NULL_VAL) {
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ");
       te_print(s.return_type);
-      te_printf(" expression!\n");
+      tesl_printf(" expression!\n");
 #endif
       te_make_error(s);
     }
   } else {
     te_expr * e = tesl::parse::parse_expr(s, -2);
-    te_type result_type = e ? e->type : TE_ERROR;
+    Type result_type = e ? e->type : TYPE_ERROR;
 
     er.set_end(s.prev_token.name.end);
 
-    if (result_type == TE_ERROR) {
+    if (result_type == TYPE_ERROR) {
       s.parse_error = true;
-    } else if ((result_type | TE_CONSTANT) != s.return_type) {
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: 'return' cannot convert ");
+    } else if ((result_type | TYPE_FLAG_CONSTANT) != s.return_type) {
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: 'return' cannot convert ");
       te_print(result_type);
-      te_printf(" to ");
+      tesl_printf(" to ");
       te_print(s.return_type);
-      te_printf("\n");
+      tesl_printf("\n");
 #endif
       te_make_error(s);
     } else {
@@ -4931,21 +2574,21 @@ static void parse_return_stmt(te_parser_state & s) {
 
 static void parse_stmt(te_parser_state & s) {
 #ifdef TE_DEBUG_PEDANTIC
-  te_printf("entered stmt\n");
+  tesl_printf("entered stmt\n");
 #endif
 
   /* <stmt>      =    ("{" {<stmt>}+ "}" | "if" "(" <int-expr> ")" <stmt> {"else" <stmt>} | ("return" <vexpr> | "break" | "continue" | <typename> <id> {"=" <vexpr>} | <rexpr> ("=" | "+=" | "-=" | "*=" | "/=" | "%=") <vexpr> | <expr> ";")) */
-  if (s.curr_token == te_token::OPEN_CURLY_BRACKET) {
+  if (s.curr_token == Token::OPEN_CURLY_BRACKET) {
     s.advance();
-    parse_suite(s, te_token::CLOSE_CURLY_BRACKET);
-  } else if (s.curr_token == te_token::IF) {
+    parse_suite(s, Token::CLOSE_CURLY_BRACKET);
+  } else if (s.curr_token == Token::IF) {
     parse_if_stmt(s);
-  } else if (s.curr_token == te_token::FOR) {
+  } else if (s.curr_token == Token::FOR) {
     parse_for_stmt(s);
   } else {
-    if (s.curr_token == te_token::TYPENAME) {
+    if (s.curr_token == Token::TYPENAME) {
       parse_var_stmt(s, true);
-    } else if (s.curr_token == te_token::RETURN) {
+    } else if (s.curr_token == Token::RETURN) {
       parse_return_stmt(s);
     } else {
       const char * token_start = s.curr_token.name.ptr;
@@ -4956,14 +2599,14 @@ static void parse_stmt(te_parser_state & s) {
       }
     }
 
-    if (s.curr_token == te_token::SEMICOLON) {
+    if (s.curr_token == Token::SEMICOLON) {
       s.advance();
     } else {
-      te_error_record er{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected ';', got ");
+      ErrorRecord er{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected ';', got ");
       te_print(s.curr_token);
-      te_printf("!\n");
+      tesl_printf("!\n");
 #endif
       te_make_error(s);
     }
@@ -4973,18 +2616,18 @@ static void parse_stmt(te_parser_state & s) {
 static te_expr * parse_program(te_parser_state & s) {
   /* <program>   =    {{"const" <var> | "uniform" <var> | <fn>} ";"}+ */
   // TODO: finish
-  s.return_type = TE_VEC3;
+  s.return_type = TYPE_VEC3_VAL;
   return parse_standalone_suite(s);
 }
 
 void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
-#ifdef TE_DEBUG_EVAL
+#ifdef TESL_DEBUG_EVAL
 
 #define TE_ERR_FAIL_COND(cond, fail_action, ...)\
   do {\
     if (cond) {\
-        te_printf(__VA_ARGS__);\
-        te_printf("\n");\
+        tesl_printf(__VA_ARGS__);\
+        tesl_printf("\n");\
         fail_action;\
     }\
   } while(false)
@@ -4992,12 +2635,12 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
 #define TE_CHECK_EXPECTED_TYPE(chk_type, expected, fail_action, ...)\
   do {\
     if ((chk_type) != (expected)) {\
-        te_printf(__VA_ARGS__);\
-        te_printf(" expected ");\
-        te_print(te_type(expected));\
-        te_printf(", got ");\
-        te_print(te_type(chk_type));\
-        te_printf("\n");\
+        tesl_printf(__VA_ARGS__);\
+        tesl_printf(" expected ");\
+        te_print(Type(expected));\
+        tesl_printf(", got ");\
+        te_print(Type(chk_type));\
+        tesl_printf("\n");\
     }\
   } while(false)
 
@@ -5018,7 +2661,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
     } break;
     case TE_OP_VALUE: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_VALUE\n");
+      tesl_printf("TE_OP_VALUE\n");
 #endif
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
 
@@ -5027,7 +2670,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
     } break;
     case TE_OP_STACK_REF: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_STACK_REF\n");
+      tesl_printf("TE_OP_STACK_REF\n");
 #endif
       TE_ERR_FAIL_COND(!p_stack, return, "eval error: stack ptr is null!");
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
@@ -5038,7 +2681,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
     } break;
     case TE_OP_STACK_REF_REF: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_STACK_REF_REF\n");
+      tesl_printf("TE_OP_STACK_REF_REF\n");
 #endif
       TE_ERR_FAIL_COND(!p_stack, return, "eval error: stack ptr is null!");
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
@@ -5049,7 +2692,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
     } break;
     case TE_OP_DEREF: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_DEREF\n");
+      tesl_printf("TE_OP_DEREF\n");
 #endif
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
 
@@ -5060,36 +2703,36 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
     } break;
     case TE_OP_ASSIGN: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_ASSIGN\n");
+      tesl_printf("TE_OP_ASSIGN\n");
 #endif
       TE_ERR_FAIL_COND(!p_stack, return, "eval error: stack ptr is null!");
       TE_ERR_FAIL_COND(!ret, return, "eval error: return ptr is null!");
 
       const te_assign_expr * assign_expr = reinterpret_cast<const te_assign_expr *>(n);
-      TE_ERR_FAIL_COND(!TE_IS_REF(assign_expr->lhs->type), return, "eval error: lhs is not a ref!");
+      TE_ERR_FAIL_COND(!tesl::is_ref(assign_expr->lhs->type), return, "eval error: lhs is not a ref!");
 
       void * lhs;
       te_eval_internal(assign_expr->lhs, p_stack, reinterpret_cast<te_value *>(&lhs));
       TE_ERR_FAIL_COND(!lhs, return, "eval error: lhs ref is null!");
 
-      TE_CHECK_EXPECTED_TYPE(assign_expr->lhs->type | TE_CONSTANT, assign_expr->rhs->type, return, "eval error: assignment lhs and rhs do not match!");
+      TE_CHECK_EXPECTED_TYPE(assign_expr->lhs->type | TYPE_FLAG_CONSTANT, assign_expr->rhs->type, return, "eval error: assignment lhs and rhs do not match!");
       te_eval_internal(assign_expr->rhs, p_stack, reinterpret_cast<te_value *>(lhs));
       ret->ptr = lhs;
     } break;
     case TE_OP_CALL: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_CALL\n");
+      tesl_printf("TE_OP_CALL\n");
 #endif
       const te_call_expr * call_expr = reinterpret_cast<const te_call_expr *>(n);
       char * stack = static_cast<char *>(alloca(call_expr->arg_stack_size));
       {
         char * stackptr = stack;
-        te_type param_type = TE_ERROR;
+        Type param_type = TYPE_ERROR;
         uint8_t param_count = call_expr->fn.param_count;
         uint8_t param_size = 0;
         for (int i = 0; i < param_count; ++i, stackptr += param_size) {
           param_type = call_expr->fn.param_types[i];
-          param_size = te_size_of(param_type);
+          param_size = sizeof_type(param_type);
 
           TE_ERR_FAIL_COND(!call_expr->args[i], continue, "eval error: fn arg expr ptr is null!");
           TE_CHECK_EXPECTED_TYPE(call_expr->args[i]->type, param_type, continue, "eval error: argument and parameter types do not match!");
@@ -5098,13 +2741,13 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
       }
 
       TE_ERR_FAIL_COND(!call_expr->fn.is_valid(), return, "eval error: null function call!");
-      TE_ERR_FAIL_COND(!ret && call_expr->type != TE_NULL, return, "eval error: return ptr is null but function returns a value!");
+      TE_ERR_FAIL_COND(!ret && call_expr->type != TYPE_NULL_VAL, return, "eval error: return ptr is null but function returns a value!");
 
       call_expr->fn.ptr(call_expr->fn.context, stack, ret);
     } break;
     case TE_OP_SUITE: {
 #ifdef TE_DEBUG_PEDANTIC
-      te_printf("TE_OP_SUITE\n");
+      tesl_printf("TE_OP_SUITE\n");
 #endif
       const te_suite_expr * suite_expr = reinterpret_cast<const te_suite_expr *>(n);
       char * stack = static_cast<char *>(alloca(suite_expr->stack_size));
@@ -5114,7 +2757,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
         switch (stmt->opcode) {
           case TE_OP_JMP: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP\n");
+            tesl_printf("TE_OP_JMP\n");
 #endif
             const te_jmp_op * jmp_op = reinterpret_cast<const te_jmp_op *>(stmt);
             TE_ERR_FAIL_COND(jmp_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
@@ -5123,7 +2766,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
           } break;
           case TE_OP_JMP_REF: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_REF\n");
+            tesl_printf("TE_OP_JMP_REF\n");
 #endif
             const te_jmp_ref_op * jmp_ref_op = reinterpret_cast<const te_jmp_ref_op *>(stmt);
             const uint16_t offset = *jmp_ref_op->offset_ref;
@@ -5133,13 +2776,13 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
           } break;
           case TE_OP_JMP_IF: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_IF\n");
+            tesl_printf("TE_OP_JMP_IF\n");
 #endif
             const te_jmp_if_op * jmp_if_op = reinterpret_cast<const te_jmp_if_op *>(stmt);
-            TE_CHECK_EXPECTED_TYPE(jmp_if_op->condition->type, TE_INT, return, "eval error: incorrect type for conditional!");
+            TE_CHECK_EXPECTED_TYPE(jmp_if_op->condition->type, TYPE_INT_VAL, return, "eval error: incorrect type for conditional!");
             TE_ERR_FAIL_COND(jmp_if_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
 
-            te_int cond = 0;
+            IntT cond = 0;
             te_eval_internal(jmp_if_op->condition, stack, reinterpret_cast<te_value *>(&cond));
 
             if (cond) {
@@ -5149,13 +2792,13 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
           } break;
           case TE_OP_JMP_IF_NOT: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_JMP_IF_NOT\n");
+            tesl_printf("TE_OP_JMP_IF_NOT\n");
 #endif
             const te_jmp_if_not_op * jmp_if_not_op = reinterpret_cast<const te_jmp_if_not_op *>(stmt);
-            TE_CHECK_EXPECTED_TYPE(jmp_if_not_op->condition->type, TE_INT, return, "eval error: incorrect type for conditional!");
+            TE_CHECK_EXPECTED_TYPE(jmp_if_not_op->condition->type, TYPE_INT_VAL, return, "eval error: incorrect type for conditional!");
             TE_ERR_FAIL_COND(jmp_if_not_op->offset == te_jmp_op::unknown_offset, return, "eval error: unknown offset!");
 
-            te_int cond = 0;
+            IntT cond = 0;
             te_eval_internal(jmp_if_not_op->condition, stack, reinterpret_cast<te_value *>(&cond));
 
             if (!cond) {
@@ -5165,7 +2808,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
           } break;
           case TE_OP_RETURN: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("TE_OP_RETURN\n");
+            tesl_printf("TE_OP_RETURN\n");
 #endif
             const te_return_op * return_expr = reinterpret_cast<const te_return_op *>(stmt);
             TE_CHECK_EXPECTED_TYPE(return_expr->arg->type, n->type, return, "eval error: incorrect return type!");
@@ -5183,7 +2826,7 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
           case TE_OP_CALL:
           case TE_OP_SUITE: {
 #ifdef TE_DEBUG_PEDANTIC
-            te_printf("eval stmt expr\n");
+            tesl_printf("eval stmt expr\n");
 #endif
             const te_expr * expr = reinterpret_cast<const te_expr *>(stmt);
             te_value trash;
@@ -5204,8 +2847,8 @@ void te_eval_internal(const te_expr * n, char * p_stack, te_value * ret) {
       TE_ERR_FAIL_COND(true, return, "eval error: unknown op 0x%02x!", int(n->opcode));
     } break;
   }
-  if (TE_IS_REF(n->type) && !ret->ref)
-  TE_ERR_FAIL_COND(TE_IS_REF(n->type) && !ret->ref, return, "eval error: null reference!");
+  if (tesl::is_ref(n->type) && !ret->ref)
+  TE_ERR_FAIL_COND(tesl::is_ref(n->type) && !ret->ref, return, "eval error: null reference!");
 }
 
 static void te_optimize(te_op * op) {
@@ -5231,15 +2874,15 @@ static void te_optimize(te_op * op) {
       break;
     case TE_OP_CALL: {
       te_call_expr * call_expr = reinterpret_cast<te_call_expr *>(op);
-      bool args_constant = true;
+      bool are_any_args_refs = false;
       for (int i = 0; i > call_expr->fn.param_count; ++i) {
         te_optimize(call_expr->args[i]);
-        if (!call_expr->args[i] || !TE_IS_CONSTANT(call_expr->args[i]->type)) {
-          args_constant = false;
+        if (!call_expr->args[i] || tesl::is_ref(call_expr->args[i]->type)) {
+          are_any_args_refs = true;
         }
       }
-      if (args_constant && call_expr->fn.pure) {
-        int value_expr_size = sizeof(te_value_expr) - sizeof(te_value) + te_size_of(call_expr->type);
+      if (!are_any_args_refs && call_expr->fn.pure) {
+        int value_expr_size = sizeof(te_value_expr) - sizeof(te_value) + sizeof_type(call_expr->type);
         // Only try if it fits in the already allocated obj.
         if (value_expr_size <= te_size_of_op(call_expr)) {
           te_value reduced; // just to be safe, use a stack var instead of overwriting expr value
@@ -5248,7 +2891,7 @@ static void te_optimize(te_op * op) {
           te_value_expr * value_expr = reinterpret_cast<te_value_expr *>(op);
           value_expr->opcode = TE_OP_VALUE;
           // Type is the same.
-          value_expr->size = te_size_of(value_expr->type);
+          value_expr->size = sizeof_type(value_expr->type);
           memcpy(&value_expr->value, &reduced, value_expr->size);
         }
       }
@@ -5274,12 +2917,12 @@ static void te_optimize(te_op * op) {
   }
 }
 
-te_typed_value te_eval(const te_expr * e) {
+TypedValueT te_eval(const te_expr * e) {
   if (!e) {
-    return {te_value{}, TE_ERROR};
+    return {te_value{}, TYPE_ERROR};
   }
 
-  te_typed_value ret;
+  TypedValueT ret;
   te_eval_internal(e, nullptr, &ret);
   ret.type = e->type;
   return ret;
@@ -5290,7 +2933,7 @@ void te_program::optimize() const {
 }
 
 template<auto ParseFn>
-static te_program te_compile_internal(const char * expression, te_variable * variables, int var_count, te_type result_type = TE_NULL) {
+static te_program te_compile_internal(const char * expression, Variable * variables, int var_count, Type result_type = TYPE_NULL_VAL) {
   te_parser_state s;
   s.return_type = result_type;
   s.program = s.line_start = expression;
@@ -5304,11 +2947,11 @@ static te_program te_compile_internal(const char * expression, te_variable * var
   s.advance();
   te_expr * root = ParseFn(s);
 
-  if (s.curr_token != te_token::END) {
-    if (root && root->type != TE_ERROR) {
-      te_error_record er{s};
-#ifdef TE_DEBUG_COMPILE
-      te_printf("error: expected end!\n");
+  if (s.curr_token != Token::END) {
+    if (root && root->type != TYPE_ERROR) {
+      ErrorRecord er{s};
+#ifdef TESL_DEBUG_COMPILE
+      tesl_printf("error: expected end!\n");
 #endif
       te_make_error(s);
     }
@@ -5319,26 +2962,26 @@ static te_program te_compile_internal(const char * expression, te_variable * var
   return {root, s.prev_error};
 }
 
-te_program te_compile_program(const char * expression, te_variable * variables, int var_count) {
+te_program te_compile_program(const char * expression, Variable * variables, int var_count) {
   return te_compile_internal<parse_program>(expression, variables, var_count);
 }
 
-te_program te_compile_suite(const char * expression, te_variable * variables, int var_count, te_type result_type) {
+te_program te_compile_suite(const char * expression, Variable * variables, int var_count, Type result_type) {
   return te_compile_internal<parse_standalone_suite>(expression, variables, var_count, result_type);
 }
 
-te_program te_compile_expr(const char * expression, te_variable * variables, int var_count) {
+te_program te_compile_expr(const char * expression, Variable * variables, int var_count) {
   return te_compile_internal<tesl::parse::parse_top_level_expr>(expression, variables, var_count);
 }
 
-te_typed_value te_interp(const char * expression, te_error_record * error) {
+TypedValueT te_interp(const char * expression, ErrorRecord * error) {
   te_program prog = te_compile_expr(expression, nullptr, 0);
   if (error) {
     *error = prog.error;
   }
 
-  te_typed_value ret;
-  ret.type = TE_ERROR;
+  TypedValueT ret;
+  ret.type = TYPE_ERROR;
   if (prog.root_expr) {
     ret.type = prog.root_expr->type;
     te_eval_internal(prog.root_expr, nullptr, &ret);
@@ -5347,80 +2990,80 @@ te_typed_value te_interp(const char * expression, te_error_record * error) {
   return ret;
 }
 
-void te_print(const te_typed_value & v) {
-  te_type type = v.type;
-  if (type == TE_FUNCTION) {
-    te_printf("fn@0x%p(", v.fn.ptr);
+void te_print(const TypedValueT & v) {
+  Type type = v.type;
+  if (type == TYPE_FUNCTION) {
+    tesl_printf("fn@0x%p(", v.fn.ptr);
     for (int i = 0; i < v.fn.param_count; i++) {
       if (i == 0) {
         if (v.fn.context) {
-          te_printf("context=0x%p, ", v.fn.context);
+          tesl_printf("context=0x%p, ", v.fn.context);
         }
       } else {
-        te_printf(", ");
+        tesl_printf(", ");
       }
       te_print(v.fn.param_types[i]);
     }
-    te_printf(") -> ");
+    tesl_printf(") -> ");
     te_print(v.fn.return_type);
-  } else if (TE_IS_REF(type)) {
+  } else if (tesl::is_ref(type)) {
     te_print(type);
-    te_printf("(@0x%p)", v.ref);
+    tesl_printf("(@0x%p)", v.ref);
   } else {
     switch (type) {
-      case TE_ERROR:
-        te_printf("<error>");
+      case TYPE_ERROR:
+        tesl_printf("<error>");
         break;
-      case TE_NULL:
-        te_printf("<null>");
+      case TYPE_NULL_VAL:
+        tesl_printf("<null>");
         break;
-      case TE_INT:
-        te_printf("%ld", long(v.int_));
+      case TYPE_INT_VAL:
+        tesl_printf("%ld", long(v.int_));
         break;
-      case TE_FLOAT:
-        te_printf("%f", v.float_);
+      case TYPE_FLOAT_VAL:
+        tesl_printf("%f", v.float_);
         break;
-      case TE_VEC2:
-        te_printf("vec2(%f, %f)", v.vec2.x, v.vec2.y);
+      case TYPE_VEC2_VAL:
+        tesl_printf("vec2(%f, %f)", v.vec2.x, v.vec2.y);
         break;
-      case TE_VEC3:
-        te_printf("vec3(%f, %f, %f)", v.vec3.x, v.vec3.y, v.vec3.z);
+      case TYPE_VEC3_VAL:
+        tesl_printf("vec3(%f, %f, %f)", v.vec3.x, v.vec3.y, v.vec3.z);
         break;
-      case TE_VEC4:
-        te_printf("vec4(%f, %f, %f, %f)", v.vec4.x, v.vec4.y, v.vec4.z, v.vec4.w);
+      case TYPE_VEC4_VAL:
+        tesl_printf("vec4(%f, %f, %f, %f)", v.vec4.x, v.vec4.y, v.vec4.z, v.vec4.w);
         break;
-      case TE_MAT2:
-        te_printf("mat2(");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat2.arr[0]), TE_VEC2});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat2.arr[1]), TE_VEC2});
-        te_printf(")");
+      case TYPE_MAT2_VAL:
+        tesl_printf("mat2(");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat2.arr[0]), TYPE_VEC2_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat2.arr[1]), TYPE_VEC2_VAL});
+        tesl_printf(")");
         break;
-      case TE_MAT3:
-        te_printf("mat3(");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[0]), TE_VEC3});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[1]), TE_VEC3});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[2]), TE_VEC3});
-        te_printf(")");
+      case TYPE_MAT3_VAL:
+        tesl_printf("mat3(");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[0]), TYPE_VEC3_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[1]), TYPE_VEC3_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat3.arr[2]), TYPE_VEC3_VAL});
+        tesl_printf(")");
         break;
-      case TE_MAT4:
-        te_printf("mat4(");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[0]), TE_VEC4});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[1]), TE_VEC4});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[2]), TE_VEC4});
-        te_printf(", ");
-        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[3]), TE_VEC4});
-        te_printf(")");
+      case TYPE_MAT4_VAL:
+        tesl_printf("mat4(");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[0]), TYPE_VEC4_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[1]), TYPE_VEC4_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[2]), TYPE_VEC4_VAL});
+        tesl_printf(", ");
+        te_print({*reinterpret_cast<const te_value *>(&v.mat4.arr[3]), TYPE_VEC4_VAL});
+        tesl_printf(")");
         break;
-      case TE_STR:
-        te_printf(v.str);
+      case TYPE_STR_VAL:
+        tesl_printf(v.str);
         break;
       default:
-        te_printf("<unknown:0x%04x>", int(type));
+        tesl_printf("<unknown:0x%04x>", int(type));
         break;
     }
   }
@@ -5430,86 +3073,86 @@ static const char swizzle_chars[] = "xyzw";
 
 static void pn(const te_op * op, int depth) {
   if (!op) {
-    te_printf("<nullptr>\n");
+    tesl_printf("<nullptr>\n");
     return;
   }
 
-  te_printf("%*s", depth, "");
+  tesl_printf("%*s", depth, "");
   switch (op->opcode) {
     case TE_OP_NONE: {
-      te_printf("none\n");
+      tesl_printf("none\n");
     } break;
     case TE_OP_ERROR: {
-      te_printf("error\n");
+      tesl_printf("error\n");
     } break;
     case TE_OP_VALUE: {
       const te_value_expr * value_expr = reinterpret_cast<const te_value_expr *>(op);
       te_print({value_expr->value, value_expr->type});
-      te_printf("\n");
+      tesl_printf("\n");
     } break;
     case TE_OP_STACK_REF:
     case TE_OP_STACK_REF_REF: {
       const te_stack_ref_expr * stack_ref_expr = reinterpret_cast<const te_stack_ref_expr *>(op);
       te_print(stack_ref_expr->type);
-      te_printf("(stack@0x%04x)", int(stack_ref_expr->offset));
+      tesl_printf("(stack@0x%04x)", int(stack_ref_expr->offset));
     } break;
     case TE_OP_DEREF: {
       const te_deref_expr * deref_expr = reinterpret_cast<const te_deref_expr *>(op);
-      te_printf("deref\n");
+      tesl_printf("deref\n");
       pn(deref_expr->arg, depth + 1);
     } break;
     case TE_OP_ASSIGN: {
       const te_assign_expr * assign_expr = reinterpret_cast<const te_assign_expr *>(op);
-      te_printf("assign\n");
+      tesl_printf("assign\n");
       pn(assign_expr->lhs, depth + 1);
       pn(assign_expr->rhs, depth + 1);
     } break;
     case TE_OP_CALL: {
       const te_call_expr * call_expr = reinterpret_cast<const te_call_expr *>(op);
       if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_add_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
-        te_printf("add\n");
+        tesl_printf("add\n");
       } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_sub_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
-        te_printf("sub\n");
+        tesl_printf("sub\n");
       } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_mul_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
-        te_printf("mul\n");
+        tesl_printf("mul\n");
       } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_div_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
-        te_printf("div\n");
+        tesl_printf("div\n");
       } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_mod_func(call_expr->args[0]->type, call_expr->args[1]->type).ptr) {
-        te_printf("mod\n");
+        tesl_printf("mod\n");
       } else if (call_expr->fn.param_count == 1 && call_expr->fn.ptr == te_get_negate_func(call_expr->args[0]->type).ptr) {
-        te_printf("negate\n");
-      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_index_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT) {
-        te_printf("index.%ld\n", long(reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_));
-      } else if (call_expr->fn.param_count == 3 && call_expr->fn.ptr == te_get_swizzle2_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT) {
-        te_printf("swizzle.%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_]);
-      } else if (call_expr->fn.param_count == 4 && call_expr->fn.ptr == te_get_swizzle3_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TE_INT) {
-        te_printf("swizzle.%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_]);
-      } else if (call_expr->fn.param_count == 5 && call_expr->fn.ptr == te_get_swizzle4_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TE_INT && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TE_INT && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TE_INT && call_expr->args[4]->opcode == TE_OP_VALUE && call_expr->args[4]->type == TE_INT) {
-        te_printf("swizzle.%c%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[4])->value.int_]);
-      } else if (call_expr->fn.ptr == (te_function) &pre_increment) {
-        te_printf("pre-increment\n");
-      } else if (call_expr->fn.ptr == (te_function) &post_increment) {
-        te_printf("post-increment\n");
-      } else if (call_expr->fn.ptr == (te_function) &pre_decrement) {
-        te_printf("pre-decrement\n");
-      } else if (call_expr->fn.ptr == (te_function) &post_decrement) {
-        te_printf("post-decrement\n");
-      } else if (call_expr->fn.ptr == (te_function) &bool_not) {
-        te_printf("not\n");
+        tesl_printf("negate\n");
+      } else if (call_expr->fn.param_count == 2 && call_expr->fn.ptr == te_get_index_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TYPE_INT_VAL) {
+        tesl_printf("index.%ld\n", long(reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_));
+      } else if (call_expr->fn.param_count == 3 && call_expr->fn.ptr == te_get_swizzle2_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TYPE_INT_VAL && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TYPE_INT_VAL) {
+        tesl_printf("swizzle.%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_]);
+      } else if (call_expr->fn.param_count == 4 && call_expr->fn.ptr == te_get_swizzle3_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TYPE_INT_VAL && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TYPE_INT_VAL && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TYPE_INT_VAL) {
+        tesl_printf("swizzle.%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_]);
+      } else if (call_expr->fn.param_count == 5 && call_expr->fn.ptr == te_get_swizzle4_func(call_expr->args[0]->type).ptr && call_expr->args[1]->opcode == TE_OP_VALUE && call_expr->args[1]->type == TYPE_INT_VAL && call_expr->args[2]->opcode == TE_OP_VALUE && call_expr->args[2]->type == TYPE_INT_VAL && call_expr->args[3]->opcode == TE_OP_VALUE && call_expr->args[3]->type == TYPE_INT_VAL && call_expr->args[4]->opcode == TE_OP_VALUE && call_expr->args[4]->type == TYPE_INT_VAL) {
+        tesl_printf("swizzle.%c%c%c%c\n", swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[1])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[2])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[3])->value.int_], swizzle_chars[reinterpret_cast<const te_value_expr *>(call_expr->args[4])->value.int_]);
+      } else if (call_expr->fn.ptr == (FnPtr) &pre_increment) {
+        tesl_printf("pre-increment\n");
+      } else if (call_expr->fn.ptr == (FnPtr) &post_increment) {
+        tesl_printf("post-increment\n");
+      } else if (call_expr->fn.ptr == (FnPtr) &pre_decrement) {
+        tesl_printf("pre-decrement\n");
+      } else if (call_expr->fn.ptr == (FnPtr) &post_decrement) {
+        tesl_printf("post-decrement\n");
+      } else if (call_expr->fn.ptr == (FnPtr) &bool_not) {
+        tesl_printf("not\n");
       } else {
         bool found = false;
         for (int i = 0; i < te_builtins_count; ++i) {
-          if (te_builtins[i].type == TE_FUNCTION && call_expr->fn.ptr == te_builtins[i].fn.ptr) {
+          if (te_builtins[i].type == TYPE_FUNCTION && call_expr->fn.ptr == te_builtins[i].fn.ptr) {
             found = true;
-            te_strview fn_name = te_builtins[i].name;
-            te_printf("%.*s", fn_name.len(), fn_name.ptr);
+            StrViewT fn_name = te_builtins[i].name;
+            tesl_printf("%.*s", fn_name.len(), fn_name.ptr);
           }
         }
 
         if (!found) {
-          te_print(te_typed_value{call_expr->fn, TE_FUNCTION});
+          te_print(TypedValueT{call_expr->fn, TYPE_FUNCTION});
         }
-        te_printf("\n");
+        tesl_printf("\n");
       }
       for (int i = 0; i < call_expr->fn.param_count; i++) {
         pn(call_expr->args[i], depth + 1);
@@ -5517,32 +3160,32 @@ static void pn(const te_op * op, int depth) {
     } break;
     case TE_OP_SUITE: {
       const te_suite_expr * suite_expr = reinterpret_cast<const te_suite_expr *>(op);
-      te_printf("suite\n");
+      tesl_printf("suite\n");
       for (int i = 0; i < suite_expr->stmt_count; ++i) {
         pn(suite_expr->stmts[i], depth + 1);
       }
     } break;
     case TE_OP_JMP: {
       const te_jmp_op * jmp_op = reinterpret_cast<const te_jmp_op *>(op);
-      te_printf("jmp to %d\n", int(jmp_op->offset));
+      tesl_printf("jmp to %d\n", int(jmp_op->offset));
     } break;
     case TE_OP_JMP_REF: {
       const te_jmp_ref_op * jmp_ref_op = reinterpret_cast<const te_jmp_ref_op *>(op);
-      te_printf("jmp to ref %d\n", int(* jmp_ref_op->offset_ref));
+      tesl_printf("jmp to ref %d\n", int(* jmp_ref_op->offset_ref));
     } break;
     case TE_OP_JMP_IF: {
       const te_jmp_if_op * jmp_if_op = reinterpret_cast<const te_jmp_if_op *>(op);
-      te_printf("jmp to %d if\n", int(jmp_if_op->offset));
+      tesl_printf("jmp to %d if\n", int(jmp_if_op->offset));
       pn(jmp_if_op->condition, depth + 1);
     } break;
     case TE_OP_JMP_IF_NOT: {
       const te_jmp_if_not_op * jmp_if_not_op = reinterpret_cast<const te_jmp_if_not_op *>(op);
-      te_printf("jmp to %d if not\n", int(jmp_if_not_op->offset));
+      tesl_printf("jmp to %d if not\n", int(jmp_if_not_op->offset));
       pn(jmp_if_not_op->condition, depth + 1);
     } break;
     case TE_OP_RETURN: {
       const te_return_op * return_op = reinterpret_cast<const te_return_op *>(op);
-      te_printf("return\n");
+      tesl_printf("return\n");
       pn(return_op->arg, depth + 1);
     } break;
   }

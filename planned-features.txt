@@ -1,0 +1,11 @@
+slots and signals: useful for gui development
+user defined value types
+ref-counting
+  possibly (probly not) weighted ref-counting:
+    initial refs start at high value
+    sharing the ref splits the value
+    sharing a ref with a weight of one needs to get more weight from the actual ref count
+    could also extend to 
+
+nicely packed data
+mimalloc
