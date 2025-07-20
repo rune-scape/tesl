@@ -6,11 +6,11 @@
 
 namespace tesl {
   bool is_digit(char c) {
-    return c >= '0' && c <= '9';
+	  return static_cast<UIntT>(c - '0') < 10;
   }
 
   bool is_alpha(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+	  return static_cast<UIntT>((c | 32) - 'a') < 26;
   }
 
   bool is_valid_id_starter(char c) {
@@ -218,6 +218,24 @@ namespace tesl {
         token.span = CharStrView{tok_start, 0};
         current = token.span.begin();
       }
+
+
+
+      /*switch (token.span[0]) {
+
+#define TOKEN(str, name) if (token.span == str) { token.kind = name; ; break; }
+#define TOKEN_LITERAL(str, value) 
+#define GROUP_START(c) case c: {
+#define GROUP_END } break;
+#include "tesl_tokens.inl"
+#undef GROUP_END
+#undef GROUP_START
+#undef TOKEN_LITERAL
+#undef TOKEN
+
+      }*/
+
+
 
       if (token.span[0] == '\0') {
         token.kind = Token::END;
