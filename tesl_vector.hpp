@@ -144,13 +144,10 @@ namespace tesl {
       return -1;
     }
 
-    constexpr TESL_ALWAYS_INLINE T * begin() {
-      return base::_data;
-    }
-
-    constexpr TESL_ALWAYS_INLINE T * end() {
-      return base::_data + base::_size;
-    }
+    constexpr TESL_ALWAYS_INLINE T * begin() { return data(); }
+    constexpr TESL_ALWAYS_INLINE const T * begin() const { return data(); }
+    constexpr TESL_ALWAYS_INLINE T * end() { return data() + base::_size; }
+    constexpr TESL_ALWAYS_INLINE const T * end() const { return data() + base::_size; }
 
     template<typename VT>
     constexpr bool has(VT && v) const {

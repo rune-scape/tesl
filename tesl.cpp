@@ -1,6 +1,6 @@
 #include "tesl.hpp"
 #include "tesl_common.hpp"
-#include "tesl_value.hpp"
+#include "tesl_var.hpp"
 #include "tesl_parser.hpp"
 
 #ifndef __INT8_TYPE__
@@ -11,7 +11,6 @@
 #define __INT16_TYPE__
 #endif
 
-#include <new>
 #include <cassert>
 #include <cctype>
 #include <cstdarg>
@@ -68,13 +67,13 @@ void ErrorRecord::print() const {
   tesl_print_error(line_num, line_start, start, point, end);
 }
 
-te_parser_state::local_var_t::local_var_t(te_parser_state & s, StrViewT name, Type p_type, uint16_t p_offset) {
+te_parser_state::local_var_t::local_var_t(te_parser_state & s, StrView name, Type p_type, uint16_t p_offset) {
   type = p_type;
   offset = p_offset;
 
   int32_t len = name.len();
   if (len > 0xff) {
-    te_compile_error(s, "error: var name '", StrViewT{name.ptr, 24}, "...' too long! (max length: ", 0xff, ")");
+    te_compile_error(s, "error: var name '", StrView{name.ptr, 24}, "...' too long! (max length: ", 0xff, ")");
     return;
   } else if (len < 0) {
     te_compile_error(s, "internal error: invalid var name length: ", len);
@@ -85,7 +84,7 @@ te_parser_state::local_var_t::local_var_t(te_parser_state & s, StrViewT name, Ty
   name_length = len;
 }
 
-te_parser_state::local_var_t *te_stack_allocate_var(te_parser_state & s, StrViewT str, Type type) {
+te_parser_state::local_var_t *te_stack_allocate_var(te_parser_state & s, StrView str, Type type) {
   int8_t var_size = sizeof_type(type);
   uint16_t offset = s.stack_offset;
   te_parser_state::local_var_t &var = s.vars[s.var_count];
@@ -255,7 +254,7 @@ static te_expr * new_float_literal_expr(const FloatT & value) {
   return ret;
 }
 
-static te_expr * new_str_literal_expr(const StrViewT & str) {
+static te_expr * new_str_literal_expr(const StrView & str) {
   // Special dynamically allocated te_value that can be longer than 64 bytes int.
   // TODO: actually parse the literal here ...
   const int length = str.len();
@@ -1070,7 +1069,7 @@ bool test_arg_types_match<te_parser_state::local_var_t>(te_parser_state::local_v
 }
 
 template<typename T>
-static te_parser_state::var_ref find_var_search(T * vars, int var_count, StrViewT name, const Type * arg_types = nullptr, int arg_count = 0) {
+static te_parser_state::var_ref find_var_search(T * vars, int var_count, StrView name, const Type * arg_types = nullptr, int arg_count = 0) {
   for (int i = var_count-1; i >= 0; --i) {
     T & var = vars[i];
     if (var.get_name() == name) {
@@ -1084,7 +1083,7 @@ static te_parser_state::var_ref find_var_search(T * vars, int var_count, StrView
   return {};
 }
 
-static te_parser_state::var_ref find_var(te_parser_state & s, StrViewT name, Type * arg_types = nullptr, int arg_count = 0) {
+static te_parser_state::var_ref find_var(te_parser_state & s, StrView name, Type * arg_types = nullptr, int arg_count = 0) {
   for (int i = 0; i < arg_count; ++i) {
     if (arg_types[i] == TYPE_ERROR) {
       return {};
@@ -1590,7 +1589,7 @@ static te_expr * base(te_parser_state & s) {
     case Token::IDENTIFIER: {
       bool is_typename = s.token == Token::TYPENAME;
       Type type = s.token.type;
-      StrViewT id = s.token.name;
+      StrView id = s.token.name;
 
       s.advance();
       if (s.token == Token::OPEN_PAREN) {
@@ -3144,7 +3143,7 @@ static void pn(const te_op * op, int depth) {
         for (int i = 0; i < te_builtins_count; ++i) {
           if (te_builtins[i].type == TYPE_FUNCTION && call_expr->fn.ptr == te_builtins[i].fn.ptr) {
             found = true;
-            StrViewT fn_name = te_builtins[i].name;
+            StrView fn_name = te_builtins[i].name;
             tesl_printf("%.*s", fn_name.len(), fn_name.ptr);
           }
         }

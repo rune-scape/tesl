@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tesl_common.hpp"
+#include "tesl_fmt_fwd.hpp"
 #include "tesl_var.hpp"
 
 namespace tesl {
@@ -10,57 +11,21 @@ namespace tesl {
       END,
       IDENTIFIER,
       LITERAL,
-      COMMA,
-      DOT,
-      SEMICOLON,
-      COLON,
-      QUESTION_MARK,
-      OPEN_PAREN,
-      CLOSE_PAREN,
-      OPEN_SQUARE_BRACKET,
-      CLOSE_SQUARE_BRACKET,
-      OPEN_CURLY_BRACKET,
-      CLOSE_CURLY_BRACKET,
-      IF,
-      ELSE,
-      SWITCH,
-      CASE,
-      FOR,
-      WHILE,
-      DO,
-      BREAK,
-      CONTINUE,
-      RETURN,
-      AND,
-      AND_AND,
-      CARET,
-      CARET_CARET,
-      PIPE,
-      PIPE_PIPE,
-      EQUAL,
-      EQUAL_EQUAL,
-      BANG,
-      BANG_EQUAL,
-      LESS,
-      LESS_LESS,
-      LESS_EQUAL,
-      GREATER,
-      GREATER_GREATER,
-      GREATER_EQUAL,
-      PLUS,
-      PLUS_PLUS,
-      PLUS_EQUAL,
-      MINUS,
-      MINUS_MINUS,
-      MINUS_EQUAL,
-      STAR,
-      STAR_EQUAL,
-      SLASH,
-      SLASH_EQUAL,
-      PERCENT,
-      PERCENT_EQUAL,
-    } kind = NONE;
-    CharStrViewT name;
+
+#define TOKEN(str, name) name,
+#define TOKEN_LITERAL(str, value)
+#define GROUP_START(...)
+#define GROUP_END
+#include "tesl_tokens.inl"
+#undef GROUP_END
+#undef GROUP_START
+#undef TOKEN_LITERAL
+#undef TOKEN
+
+    };
+
+    Kind kind = NONE;
+    CharStrView span;
     Variant literal;
 
     bool operator==(Kind k) { return kind == k; }
@@ -96,15 +61,72 @@ namespace tesl {
     Token next_token();
 
     Tokenizer(const char * p_input) : input(p_input), current(p_input), line_start(p_input) {}
-
-    template<typename ... Ts>
-    void error(Ts && ... vs) {
-      has_error = true;
-      (print(vs), ...);
-      print("\n");
-    }
   };
-
-  void print(Token);
-  void print(Token::Kind);
 }
+
+template<typename CharT>
+class fmt::formatter<tesl::Token, CharT> {
+public:
+  template<typename Context>
+  constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context>
+  auto format(const tesl::Token & token, Context & ctx) const {
+    using namespace tesl;
+    switch (token.kind) {
+      case Token::NONE:
+      case Token::END:
+        return format_to(ctx.out(), "{}", token.kind);
+      case Token::IDENTIFIER:
+        return format_to(ctx.out(), "identifier '{}'", token.span);
+      case Token::LITERAL:
+        return format_to(ctx.out(), "literal {}", token.literal.get_type());
+
+#define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
+#define TOKEN_LITERAL(str, value)
+#define GROUP_START(...)
+#define GROUP_END
+#include "tesl_tokens.inl"
+#undef GROUP_END
+#undef GROUP_START
+#undef TOKEN_LITERAL
+#undef TOKEN
+
+    }
+
+    return format_to(ctx.out(), "{}", token.kind);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Token::Kind, CharT> {
+public:
+  template<typename Context>
+  constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context>
+  constexpr auto format(const tesl::Token::Kind & kind, Context & ctx) const {
+    using namespace tesl;
+    switch (kind) {
+      case Token::NONE:
+        return format_to(ctx.out(), "{}", "<none>");
+      case Token::END:
+        return format_to(ctx.out(), "{}", "<end>");
+      case Token::IDENTIFIER:
+        return format_to(ctx.out(), "{}", "<identifier>");
+      case Token::LITERAL:
+        return format_to(ctx.out(), "{}", "<literal>");
+
+#define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
+#define TOKEN_LITERAL(str, value)
+#define GROUP_START(...)
+#define GROUP_END
+#include "tesl_tokens.inl"
+#undef GROUP_END
+#undef GROUP_START
+#undef TOKEN_LITERAL
+#undef TOKEN
+
+    }
+
+    return format_to(ctx.out(), "<unknown-token:{:#04x}>", static_cast<int>(kind));
+  }
+};

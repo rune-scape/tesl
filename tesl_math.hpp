@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tesl_common.hpp"
+#include "tesl_fmt_fwd.hpp"
 #include "tesl_hash.hpp"
 #include "tesl_type.hpp"
 
@@ -169,12 +170,58 @@ namespace tesl {
   template<> inline const TypeInfo * type_info_of<Mat2> = &typeInfoMat2;
   template<> inline const TypeInfo * type_info_of<Mat3> = &typeInfoMat3;
   template<> inline const TypeInfo * type_info_of<Mat4> = &typeInfoMat4;
-
-  // todo: generalize printing and stringification
-  void print(const Vec2 & vec);
-  void print(const Vec3 & vec);
-  void print(const Vec4 & vec);
-  void print(const Mat2 & mat);
-  void print(const Mat3 & mat);
-  void print(const Mat4 & mat);
 }
+
+template<typename CharT>
+class fmt::formatter<tesl::Vec2, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Vec2 & v, Context & ctx) const {
+    return format_to(ctx.out(), "Vec2({}, {})", v.x, v.y);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Vec3, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Vec3 & v, Context & ctx) const {
+    return format_to(ctx.out(), "Vec3({}, {}, {})", v.x, v.y, v.z);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Vec4, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Vec4 & v, Context & ctx) const {
+    return format_to(ctx.out(), "Vec4({}, {}, {}, {})", v.x, v.y, v.z, v.w);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Mat2, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Mat2 & m, Context & ctx) const {
+    return format_to(ctx.out(), "Mat2({}, {})", m[0], m[1]);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Mat3, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Mat3 & m, Context & ctx) const {
+    return format_to(ctx.out(), "Mat3({}, {}, {})", m[0], m[1], m[2]);
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::Mat4, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Mat4 & m, Context & ctx) const {
+    return format_to(ctx.out(), "Mat4({}, {}, {}, {})", m[0], m[1], m[2], m[3]);
+  }
+};

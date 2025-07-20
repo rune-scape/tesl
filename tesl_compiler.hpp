@@ -31,9 +31,9 @@ namespace tesl {
       te_type type = TYPE_ERROR;
       uint16_t offset = 0;
 
-      StrViewT get_name() const { return {name_ptr, static_cast<int>(name_length)}; }
+      StrView get_name() const { return {name_ptr, static_cast<int>(name_length)}; }
 
-      local_var_t(te_parser_state & s, StrViewT name, te_type p_type, uint16_t p_offset);
+      local_var_t(te_parser_state & s, StrView name, te_type p_type, uint16_t p_offset);
       local_var_t() = default;
     };
 
@@ -62,7 +62,7 @@ namespace tesl {
         return get_type() == TYPE_FUNCTION;
       }
       
-      StrViewT get_name() const {
+      StrView get_name() const {
         switch (kind) {
           case INVALID:
             return {};
@@ -140,18 +140,18 @@ namespace tesl {
   };
 
   struct Variable {
-    StrViewT name = "<unnamed>";
+    StrView name = "<unnamed>";
     Type type = TYPE_ERROR;
     union {
       te_value value;
       FnObj fn;
     };
 
-    StrViewT get_name() const { return name; }
+    StrView get_name() const { return name; }
 
-    TESL_ALWAYS_INLINE constexpr Variable(StrViewT p_name, TypedValueT v) : name(p_name), type(v.type), value(v) {}
-    TESL_ALWAYS_INLINE constexpr Variable(StrViewT p_name, Type t, te_value v) : name(p_name), type(t), value(v) {}
-    TESL_ALWAYS_INLINE constexpr Variable(StrViewT p_name, FnObj p_func) : name(p_name), type(TYPE_FUNCTION), fn(p_func) {}
+    TESL_ALWAYS_INLINE constexpr Variable(StrView p_name, TypedValueT v) : name(p_name), type(v.type), value(v) {}
+    TESL_ALWAYS_INLINE constexpr Variable(StrView p_name, Type t, te_value v) : name(p_name), type(t), value(v) {}
+    TESL_ALWAYS_INLINE constexpr Variable(StrView p_name, FnObj p_func) : name(p_name), type(TYPE_FUNCTION), fn(p_func) {}
   };
 */
 }

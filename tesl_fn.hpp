@@ -6,7 +6,7 @@
 
 namespace tesl {
   struct FnObj : public FnObjBase {
-    const TypeInfo * return_type = type_info_of<NullT>;
+    const TypeInfo * return_type = type_info_of<Null>;
     Vector<const TypeInfo *, 1> param_types;
   };
 
@@ -19,7 +19,7 @@ namespace tesl {
     template<IntT Size>
     using index_sequence_helper = std::make_integer_sequence<IntT, Size>;
 
-    //template <typename T, typename ... Next> using first_type = T;
+    //template<typename T, typename ... Next> using first_type = T;
 
     template<IntT I, bool Last, typename ... Next>
     struct offset_of0;

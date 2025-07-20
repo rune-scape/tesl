@@ -125,20 +125,36 @@ else ()
         main.cpp
         #tesl.hpp tesl.cpp
         tesl_common.hpp tesl_common.cpp
+        tesl_fmt.hpp tesl_fmt.cpp
         tesl_hash.hpp tesl_hash.cpp
         tesl_tokenizer.hpp tesl_tokenizer.cpp
         #tesl_compiler.hpp tesl_compiler.cpp
         #tesl_parser.hpp tesl_parser.cpp
-        tesl_stringify.hpp tesl_stringify.cpp
         tesl_symbol.hpp tesl_symbol.cpp
         tesl_type.hpp tesl_type.cpp
         tesl_var.hpp tesl_var.cpp
         tesl_vector.hpp)
+
+    #add_subdirectory(fmt)
+    #target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0)
+    #target_compile_options(fmt PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc)
+    #target_link_options(fmt PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc)
+    #target_link_libraries(tesl PRIVATE fmt)
+
+    add_library(rpmalloc STATIC rpmalloc/rpmalloc/rpmalloc.c)
+    target_compile_definitions(rpmalloc PRIVATE ENABLE_OVERRIDE=1)
+    target_include_directories(rpmalloc PUBLIC rpmalloc/rpmalloc)
+    target_link_libraries(tesl PRIVATE rpmalloc)
+    
+    
     #add_executable(tesl main.cpp tesl.hpp tesl.cpp printf.h printf.c)
     #target_compile_options(tesl PUBLIC -fsanitize=address -m32)
     #target_link_options(tesl PUBLIC -fsanitize=address -m32)
-    target_compile_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
-    target_link_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
+    #target_compile_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
+    #target_link_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
+    target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0 FMT_USE_STD_STRING=0)
+    target_compile_options(tesl PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc -lgcc -flto)
+    target_link_options(tesl PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc -lgcc -flto)
 
     #target_link_libraries(tesl PUBLIC concurrent_deferred_rc)
 endif ()

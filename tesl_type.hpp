@@ -1,10 +1,11 @@
 #pragma once
 
 #include "tesl_common.hpp"
+#include "tesl_fmt_fwd.hpp"
 
 namespace tesl {
   struct TypeInfo {
-    StrViewT name;
+    StrView name;
     IntT size;
     IntT align;
 
@@ -50,8 +51,21 @@ namespace tesl {
   extern TypeInfo typeInfoFn;
 
   template<typename T> inline const TypeInfo * type_info_of;
-  template<> inline const TypeInfo * type_info_of<NullT> = &typeInfoNull;
-  template<> inline const TypeInfo * type_info_of<BoolT> = &typeInfoBool;
+  template<> inline const TypeInfo * type_info_of<Null> = &typeInfoNull;
+  template<> inline const TypeInfo * type_info_of<Bool> = &typeInfoBool;
   template<> inline const TypeInfo * type_info_of<IntT> = &typeInfoInt;
   template<> inline const TypeInfo * type_info_of<FloatT> = &typeInfoFloat;
+
+  inline auto format_as(const tesl::TypeInfo * t) { return *t; }
 }
+
+template<typename CharT>
+class fmt::formatter<tesl::TypeInfo, CharT> {
+public:
+  template<typename Context>
+  constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context>
+  constexpr auto format(const tesl::TypeInfo & type, Context & ctx) const {
+    return format_to(ctx.out(), "{}", type.name);
+  }
+};

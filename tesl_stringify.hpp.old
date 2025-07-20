@@ -1,0 +1,26 @@
+#pragma once
+
+#include "tesl_common.hpp"
+#include "tesl_math.hpp"
+#include "tesl_str.hpp"
+
+namespace tesl {
+  /*struct StringifySettings {
+    bool left_justify = false;
+    IntT base = 10;
+    IntT float_precision = 8;
+  };
+
+  StrView stringify_null();
+  StrView stringify_bool(Bool v);
+  Str stringify_int(IntT v, IntT base = 10);
+  Str stringify_float(FloatT v, StringifySettings settings = {});
+  // todo: generalize stringify and print
+  Str stringify_vec2(Vec2 v, StringifySettings settings = {});
+  Str stringify_vec3(Vec3 v, StringifySettings settings = {});
+  Str stringify_vec4(Vec4 v, StringifySettings settings = {});
+  Str stringify_mat2(Mat2 v, StringifySettings settings = {});
+  Str stringify_mat3(Mat3 v, StringifySettings settings = {});
+  Str stringify_mat4(Mat4 v, StringifySettings settings = {});
+*/
+}

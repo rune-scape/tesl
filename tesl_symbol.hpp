@@ -9,15 +9,15 @@ namespace tesl {
 
   struct Symbol {
     SymbolIndexT index;
-    StrViewT name;
+    StrView name;
   };
 
   // todo: global state
-  Map<StrT, Symbol> s; 
+  Map<Str, Symbol> s; 
 
   struct SymbolRef {
     SymbolIndexT index;
-    StrViewT name;
+    StrView name;
   };
 
 #ifdef TESL_COMPACT_METHOD_TABLE

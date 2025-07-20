@@ -9,12 +9,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <string_view>
 #include <type_traits>
 
 //#define TESL_USE_CHAR32
 #define TESL_USE_64_BIT_NUMBERS
 
-#define TESL_DEBUG_TOKENIZER
 #define TESL_DEBUG_PARSER
 #define TESL_DEBUG_VALUE
 #define TESL_DEBUG_COMPILE
@@ -51,23 +51,19 @@
     } else ((void)0)
 #endif
 
-
 // This is used to clearly mark flexible-sized arrays that appear at the end of
 // some dynamically-allocated structs, known as the "struct hack".
 #define FLEXIBLE_ARRAY 0
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
 
-namespace tesl {
-  struct NullT {};
-  constexpr NullT null_value{};
+#define TESL_UNREACHABLE abort();
 
-  struct BoolT {
-    bool value = false;
-    BoolT() = default;
-    explicit BoolT(bool v) : value(v) {}
-    explicit operator bool() { return value; }
-  };
+namespace tesl {
+  struct Null {};
+  constexpr Null null_value{};
+
+  using Bool = bool;
 
 #ifdef TESL_USE_64_BIT_NUMBERS
   using FloatT = double;
@@ -78,8 +74,6 @@ namespace tesl {
   using IntT = int32_t;
   using UIntT = uint32_t;
 #endif
-
-  using HashT = uint64_t;
 
   template<typename T>
   struct ArrayView {
@@ -120,16 +114,17 @@ namespace tesl {
     return *str ? 1 + constexpr_strlen(str + 1) : 0;
   }
 
-  template<typename T>
-  constexpr const auto * empty_str = "";
-  template<>
-  constexpr const auto * empty_str<char> = "";
-  template<>
-  constexpr const auto * empty_str<wchar_t> = L"";
-  template<>
-  constexpr const auto * empty_str<char16_t> = u"";
-  template<>
-  constexpr const auto * empty_str<char32_t> = U"";
+  template<typename T> inline constexpr const T * empty_str;
+  template<> inline constexpr const char * empty_str<char> = "";
+  template<> inline constexpr const wchar_t * empty_str<wchar_t> = L"";
+  template<> inline constexpr const char16_t * empty_str<char16_t> = u"";
+  template<> inline constexpr const char32_t * empty_str<char32_t> = U"";
+
+  template<typename T> inline constexpr T null_terminator;
+  template<> inline constexpr char null_terminator<char> = '\0';
+  template<> inline constexpr wchar_t null_terminator<wchar_t> = L'\0';
+  template<> inline constexpr char16_t null_terminator<char16_t> = u'\0';
+  template<> inline constexpr char32_t null_terminator<char32_t> = U'\0';
 
 #ifdef TESL_USE_CHAR32
   using CommonCharT = char32_t;
@@ -140,41 +135,16 @@ namespace tesl {
 #endif
 
 
-  template<typename T>
-  struct StrViewBaseT : public ArrayView<const T> {
-    using base = ArrayView<const T>;
-    using base::base;
+  template<typename CharT>
+  using StrViewBaseT = std::basic_string_view<CharT>;
 
-    TESL_ALWAYS_INLINE constexpr IntT length() const {
-      return base::size();
-    }
+  using CharStrView = StrViewBaseT<char>;
+  using WCharStrView = StrViewBaseT<wchar_t>;
+  using Char16StrView = StrViewBaseT<char16_t>;
+  using Char32StrView = StrViewBaseT<char32_t>;
+  using StrView = StrViewBaseT<CommonCharT>;
 
-    TESL_ALWAYS_INLINE constexpr bool operator==(const StrViewBaseT &other) const {
-      auto len = length();
-      if (len == other.length()) {
-        for (IntT i = 0; i < len; ++i) {
-          if ((*this)[i] != other[i]) {
-            return false;
-          }
-        }
-        return true;
-      }
-
-      return false;
-    }
-
-    TESL_ALWAYS_INLINE constexpr const T * ptr() const { return base::data(); }
-
-    TESL_ALWAYS_INLINE StrViewBaseT(const T * str) : base::_ptr(str), base::_end(str + string_length(str)) {}
-  };
-
-  using CharStrViewT = StrViewBaseT<char>;
-  using WCharStrViewT = StrViewBaseT<wchar_t>;
-  using Char16StrViewT = StrViewBaseT<char16_t>;
-  using Char32StrViewT = StrViewBaseT<char32_t>;
-  using StrViewT = StrViewBaseT<CommonCharT>;
-
-#define ConstStrViewT(str) StrViewT{str, constexpr_strlen(str)}
+#define ConstStrViewT(str) StrView{str, constexpr_strlen(str)}
 #define TESL_STRVIEW(str) ConstStrViewT(TESL_STR(str))
 
   constexpr IntT variant_storage_size = sizeof(void *);
@@ -196,8 +166,8 @@ namespace tesl {
 
   inline void empty_fn(void * context, void * args, void * ret) { }
 
-  #define MOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)>&&>(__VA_ARGS__)
-  #define FWD(...) static_cast<decltype(__VA_ARGS__)&&>(__VA_ARGS__)
+  #define MOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)> &&>(__VA_ARGS__)
+  #define FWD(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)
 
   template<typename T>
   inline void swap(T & a, T & b) {
@@ -257,42 +227,11 @@ namespace tesl {
     memcpy(reinterpret_cast<void *>(&b), reinterpret_cast<void *>(tmp), sizeof(T));
   }
 
-  HashT hash(BoolT b);
-  HashT hash(IntT i);
-  HashT hash(FloatT f);
-  HashT hash(char c);
-  HashT hash(wchar_t c);
-  HashT hash(char16_t c);
-  HashT hash(char32_t c);
-  HashT hash(const char * str);
-  HashT hash(const wchar_t * str);
-  HashT hash(const char16_t * str);
-  HashT hash(const char32_t * str);
-  HashT hash(const CharStrViewT & str);
-  HashT hash(const WCharStrViewT & str);
-  HashT hash(const Char16StrViewT & str);
-  HashT hash(const Char32StrViewT & str);
+  void print_error(int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end);
 
-  void print(BoolT b);
-  void print(IntT i);
-  void print(FloatT f);
-  void print(char c);
-  void print(wchar_t c);
-  void print(char16_t c);
-  void print(char32_t c);
-  void print(const char * str);
-  void print(const wchar_t * str);
-  void print(const char16_t * str);
-  void print(const char32_t * str);
-  void print(const CharStrViewT & str);
-  void print(const WCharStrViewT & str);
-  void print(const Char16StrViewT & str);
-  void print(const Char32StrViewT & str);
-  void print_error(IntT line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end);
-
-  template<typename ... Ts>
+  /*template<typename ... Ts>
   inline void printv(Ts && ... vs) {
     (print(vs), ...);
     tesl_printf("\n");
-  }
+  }*/
 } // namespace tesl

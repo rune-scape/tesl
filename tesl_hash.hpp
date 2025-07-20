@@ -3,17 +3,19 @@
 #include "tesl_common.hpp"
 
 namespace tesl {
+  using HashT = uint64_t;
+
   namespace detail {
     HashT hash_mix(uint64_t a, HashT b);
     HashT hash_buffer(const void * buffer, IntT len);
 
     TESL_ALWAYS_INLINE HashT hash_one(uint64_t v) {
-      return hash_mix(v, UINT64_C(0x2d358dccaa6c78a5));
+      return hash_mix(v, UINT64_C(0x4d5a2da51de1aa47));
     }
   }
 
-  TESL_ALWAYS_INLINE HashT hash(BoolT b) {
-    return detail::hash_one(b.value);
+  TESL_ALWAYS_INLINE HashT hash(Bool b) {
+    return detail::hash_one(b);
   }
 
   TESL_ALWAYS_INLINE HashT hash(IntT i) {
@@ -56,19 +58,19 @@ namespace tesl {
     return detail::hash_buffer(str, string_length(str) * sizeof(char32_t));
   }
 
-  TESL_ALWAYS_INLINE HashT hash(const CharStrViewT & str) {
-    return detail::hash_buffer(str.ptr(), str.length());
+  TESL_ALWAYS_INLINE HashT hash(const CharStrView & str) {
+    return detail::hash_buffer(str.data(), str.size());
   }
 
-  TESL_ALWAYS_INLINE HashT hash(const WCharStrViewT & str) {
-    return detail::hash_buffer(str.ptr(), str.length() * sizeof(wchar_t));
+  TESL_ALWAYS_INLINE HashT hash(const WCharStrView & str) {
+    return detail::hash_buffer(str.data(), str.size() * sizeof(wchar_t));
   }
 
-  TESL_ALWAYS_INLINE HashT hash(const Char16StrViewT & str) {
-    return detail::hash_buffer(str.ptr(), str.length() * sizeof(char16_t));
+  TESL_ALWAYS_INLINE HashT hash(const Char16StrView & str) {
+    return detail::hash_buffer(str.data(), str.size() * sizeof(char16_t));
   }
 
-  TESL_ALWAYS_INLINE HashT hash(const Char32StrViewT & str) {
-    return detail::hash_buffer(str.ptr(), str.length() * sizeof(char32_t));
+  TESL_ALWAYS_INLINE HashT hash(const Char32StrView & str) {
+    return detail::hash_buffer(str.data(), str.size() * sizeof(char32_t));
   }
 }

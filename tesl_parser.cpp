@@ -792,9 +792,6 @@ namespace tesl {
         make_rule(parse_boolean_op_expr, make_pattern(similar_rule, Token::AND_AND, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_boolean_op_expr, make_pattern(similar_rule, Token::CARET_CARET, similar_rule))
-      ),
-      make_rule_list(
         make_rule(parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule))
       ),
       make_rule_list(

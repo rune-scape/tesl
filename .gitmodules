@@ -1,0 +1,3 @@
+[submodule "rpmalloc"]
+	path = rpmalloc
+	url = ./rpmalloc

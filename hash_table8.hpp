@@ -24,7 +24,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE
 
-// modified by rune for thise epic project
+// modified by rune for this epic project
 
 #pragma once
 

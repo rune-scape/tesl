@@ -1,10 +1,10 @@
 #include "tesl_hash.hpp"
 
 extern "C" {
-#define RAPIDHASH_COMPACT
-#define RAPIDHASH_PROTECTED
-#ifndef TESL_USE_64_BIT_NUMBERS
-#define WYHASH_32BIT_MUM
+#ifdef TESL_USE_64_BIT_NUMBERS
+#define WYHASH_32BIT_MUM 0
+#else
+#define WYHASH_32BIT_MUM 1
 #endif
 #include "wyhash.h"
 }

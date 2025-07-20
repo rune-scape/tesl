@@ -1,7 +1,9 @@
 #pragma once
 
 #include "tesl_common.hpp"
+#include "tesl_fmt_fwd.hpp"
 #include "tesl_hash.hpp"
+#include "tesl_type.hpp"
 #include "hash_table8.hpp"
 
 namespace tesl {
