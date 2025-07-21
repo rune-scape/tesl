@@ -1,20 +1,22 @@
-// in lexicographical order (ascii value of first character)
+// token definitions for use with macros (yuck)
+// for ease of development
+// tokens in group must be longest first or else
 // GROUP_START(ch) will give the first character of a group
-// GROUP_END() will denote the end of a group
+// GROUP_END will denote the end of a group
 // TOKEN(str, name) will give the match string and the name of the token
-// TOKEN_LITERAL(str, value) will give the match string and  a value
+// TOKEN_LITERAL(str, value) will give the match string and the value of a token literal
 
 GROUP_START('!')
-TOKEN("!", BANG)
 TOKEN("!=", BANG_EQUAL)
+TOKEN("!", BANG)
 GROUP_END
 GROUP_START('%')
-TOKEN("%", PERCENT)
 TOKEN("%=", PERCENT_EQUAL)
+TOKEN("%", PERCENT)
 GROUP_END
 GROUP_START('&')
-TOKEN("&", AND)
 TOKEN("&&", AND_AND)
+TOKEN("&", AND)
 GROUP_END
 GROUP_START('(')
 TOKEN("(", OPEN_PAREN)
@@ -23,28 +25,28 @@ GROUP_START(')')
 TOKEN(")", CLOSE_PAREN)
 GROUP_END
 GROUP_START('*')
-TOKEN("*", STAR)
 TOKEN("*=", STAR_EQUAL)
+TOKEN("*", STAR)
 GROUP_END
 GROUP_START('+')
-TOKEN("+", PLUS)
-TOKEN("++", PLUS_PLUS)
 TOKEN("+=", PLUS_EQUAL)
+TOKEN("++", PLUS_PLUS)
+TOKEN("+", PLUS)
 GROUP_END
 GROUP_START(',')
 TOKEN(",", COMMA)
 GROUP_END
 GROUP_START('-')
-TOKEN("-", MINUS)
-TOKEN("--", MINUS_MINUS)
 TOKEN("-=", MINUS_EQUAL)
+TOKEN("--", MINUS_MINUS)
+TOKEN("-", MINUS)
 GROUP_END
 GROUP_START('.')
 TOKEN(".", DOT)
 GROUP_END
 GROUP_START('/')
-TOKEN("/", SLASH)
 TOKEN("/=", SLASH_EQUAL)
+TOKEN("/", SLASH)
 GROUP_END
 GROUP_START(':')
 TOKEN(":", COLON)
@@ -53,18 +55,18 @@ GROUP_START(';')
 TOKEN(";", SEMICOLON)
 GROUP_END
 GROUP_START('<')
-TOKEN("<", LESS)
-TOKEN("<<", LESS_LESS)
 TOKEN("<=", LESS_EQUAL)
+TOKEN("<<", LESS_LESS)
+TOKEN("<", LESS)
 GROUP_END
 GROUP_START('=')
-TOKEN("=", EQUAL)
 TOKEN("==", EQUAL_EQUAL)
+TOKEN("=", EQUAL)
 GROUP_END
 GROUP_START('>')
-TOKEN(">", GREATER)
 TOKEN(">=", GREATER_EQUAL)
 TOKEN(">>", GREATER_GREATER)
+TOKEN(">", GREATER)
 GROUP_END
 GROUP_START('?')
 TOKEN("?", QUESTION_MARK)
@@ -82,8 +84,8 @@ GROUP_START('b')
 TOKEN("break", BREAK)
 GROUP_END
 GROUP_START('c')
-TOKEN("case", CASE)
 TOKEN("continue", CONTINUE)
+TOKEN("case", CASE)
 GROUP_END
 GROUP_START('d')
 TOKEN("do", DO)
@@ -114,8 +116,8 @@ GROUP_START('{')
 TOKEN("{", OPEN_CURLY_BRACKET)
 GROUP_END
 GROUP_START('|')
-TOKEN("|", PIPE)
 TOKEN("||", PIPE_PIPE)
+TOKEN("|", PIPE)
 GROUP_END
 GROUP_START('}')
 TOKEN("}", CLOSE_CURLY_BRACKET)
