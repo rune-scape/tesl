@@ -34,7 +34,7 @@ namespace tesl {
     if (is_valid_id_starter(*s)) {
       s++;
       while (is_valid_id_meat(*s)) s++;
-      str = CharStrView{str.begin(), static_cast<size_t>(s - str.begin())};
+      str = {str.begin(), static_cast<size_t>(s - str.begin())};
       return true;
     }
     return false;
@@ -57,12 +57,12 @@ namespace tesl {
     if (parsed_float_end > parsed_int_end) {
       // strtof parsed more, use that
       tok.kind = Token::LITERAL;
-      tok.span = CharStrView{current, static_cast<size_t>(parsed_float_end - current)};
+      tok.span = {current, static_cast<size_t>(parsed_float_end - current)};
       tok.literal = parsed_float;
     } else if (parsed_int_end > current) {
       // strtol parsed something...
       tok.kind = Token::LITERAL;
-      tok.span = CharStrView{current, static_cast<size_t>(parsed_int_end - current)};
+      tok.span = {current, static_cast<size_t>(parsed_int_end - current)};
       tok.literal = parsed_int;
     }
     
@@ -134,7 +134,7 @@ namespace tesl {
     static constexpr const char * hex_chars = "0123456789abcdef";
 
     Token tok;
-    tok.span = CharStrView{current, 0};
+    tok.span = {current, 0};
 
     Str result;
     result = Str();
@@ -206,7 +206,7 @@ namespace tesl {
       }
     }
 
-    tok.span = CharStrView{tok.span.begin(), static_cast<size_t>(current - tok.span.begin())};
+    tok.span = {tok.span.begin(), static_cast<size_t>(current - tok.span.begin())};
     tok.kind = Token::LITERAL;
     tok.literal = MOV(result);
     return tok;
@@ -216,23 +216,35 @@ namespace tesl {
 
   Token Tokenizer::next_token() {
     Token token;
-    token.span = CharStrView{current, 0};
 
-    bool new_line = token.span.end() == input;
+    bool new_line = current == input;
+    token.span = {current, 0};
     do {
-      {
-        const char * tok_start = token.span.end();
-        token = {};
-        token.span = CharStrView{tok_start, 0};
-        current = token.span.begin();
-      }
+      current = token.span.end();
+      token = {};
+      token.span = {current, 0};
 
 
 
       /*switch (token.span[0]) {
+        case '\0':
+          token.kind = Token::END;
+          break;
 
-#define TOKEN(str, name) if (token.span == str) { token.kind = name; ; break; }
-#define TOKEN_LITERAL(str, value) 
+#define MATCH_TOKEN(str) strncmp(token.span.data() + 1, str + 1, sizeof(str) - 2)
+#define TOKEN(str, name) \
+  if (MATCH_TOKEN(str)) { \
+    token.kind = Token::name; \
+    token.span = {}; \
+    break; \
+  }
+#define TOKEN_LITERAL(str, value) \
+  if (MATCH_TOKEN(str)) { \
+    token.kind = Token::LITERAL; \
+    token.literal = value; \
+    token.span = {}; \
+    break; \
+  }
 #define GROUP_START(c) case c: {
 #define GROUP_END } break;
 #include "tesl_tokens.inl"
@@ -240,6 +252,7 @@ namespace tesl {
 #undef GROUP_START
 #undef TOKEN_LITERAL
 #undef TOKEN
+#undef MATCH_TOKEN
 
       }*/
 
