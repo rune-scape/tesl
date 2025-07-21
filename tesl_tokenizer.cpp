@@ -9,6 +9,14 @@ namespace tesl {
 	  return static_cast<UIntT>(c - '0') < 10;
   }
 
+  bool is_octal_digit(char c) {
+	  return static_cast<UIntT>(c - '0') < 8;
+  }
+
+  bool is_hex_digit(char c) {
+	  return is_digit(c) || static_cast<UIntT>((c | 32) - 'a') < 6;
+  }
+
   bool is_alpha(char c) {
 	  return static_cast<UIntT>((c | 32) - 'a') < 26;
   }
@@ -65,7 +73,7 @@ namespace tesl {
     char32_t result = 0;
     for (IntT i = 0; i < 3; ++i) {
       char c = *current;
-      if (c < '0' || c > '7') {
+      if (is_octal_digit(c)) {
         break;
       }
       result <<= 3;
