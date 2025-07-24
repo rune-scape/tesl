@@ -14,11 +14,13 @@ namespace tesl {
 
 #define TOKEN(str, name) name,
 #define TOKEN_LITERAL(str, value)
+#define TOKEN_NUMBER
 #define GROUP_START(...)
 #define GROUP_END
 #include "tesl_tokens.inl"
 #undef GROUP_END
 #undef GROUP_START
+#undef TOKEN_NUMBER
 #undef TOKEN_LITERAL
 #undef TOKEN
 
@@ -38,6 +40,8 @@ namespace tesl {
     
     Token & operator=(const Token &) = default;
     Token & operator=(Token &&) = default;
+
+    Token(Kind k, CharStrView s, Variant l = {}) : kind(k), span(s), literal(l) {}
     Token(const Token &) = default;
     Token(Token &&) = default;
     ~Token() = default;
@@ -56,8 +60,9 @@ namespace tesl {
 
     char32_t _parse_octal_char();
     char32_t _parse_hex_char(IntT len);
-    Token _tokenize_number_literal();
     Token _tokenize_string_literal();
+    bool _try_tokenize_number_literal(Token & tok);
+    bool _try_tokenize_identifier_literal(Token & tok);
     Token next_token();
 
     Tokenizer(const char * p_input) : input(p_input), current(p_input), line_start(p_input) {}
@@ -83,11 +88,13 @@ public:
 
 #define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
 #define TOKEN_LITERAL(str, value)
+#define TOKEN_NUMBER
 #define GROUP_START(...)
 #define GROUP_END
 #include "tesl_tokens.inl"
 #undef GROUP_END
 #undef GROUP_START
+#undef TOKEN_NUMBER
 #undef TOKEN_LITERAL
 #undef TOKEN
 
@@ -117,11 +124,13 @@ public:
 
 #define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
 #define TOKEN_LITERAL(str, value)
+#define TOKEN_NUMBER
 #define GROUP_START(...)
 #define GROUP_END
 #include "tesl_tokens.inl"
 #undef GROUP_END
 #undef GROUP_START
+#undef TOKEN_NUMBER
 #undef TOKEN_LITERAL
 #undef TOKEN
 

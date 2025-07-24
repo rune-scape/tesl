@@ -29,44 +29,40 @@ namespace tesl {
     return is_digit(c) || is_alpha(c) || c == '_';
   }
 
-  bool validate_id(CharStrView & str) {
-    const char * s = str.data();
-    if (is_valid_id_starter(*s)) {
-      s++;
-      while (is_valid_id_meat(*s)) s++;
-      str = {str.begin(), static_cast<size_t>(s - str.begin())};
-      return true;
-    }
-    return false;
-  }
-
 #define tokenizer_error(...) \
   do { \
     has_error = true; \
-    fmt::println(__VA_ARGS__); \
+    fmt::println(stderr, __VA_ARGS__); \
   } while(false)
 
-  Token Tokenizer::_tokenize_number_literal() {
-    Token tok;
+  bool Tokenizer::_try_tokenize_number_literal(Token & tok) {
+    if (is_digit(current[0]) || (current[0] == '.' && is_digit(current[1]))) {
+      char * parsed_int_end = nullptr;
+      // todo: maybe custom parser for better errors
+      IntT parsed_int = strtol(current, &parsed_int_end, 0);
+      char * parsed_float_end = nullptr;
+      FloatT parsed_float = strtof(current, &parsed_float_end);
+      if (parsed_float_end > parsed_int_end) {
+        // strtof parsed more, use that
 
-    char * parsed_int_end = nullptr;
-    // todo: maybe custom parser for better errors
-    IntT parsed_int = strtol(current, &parsed_int_end, 0);
-    char * parsed_float_end = nullptr;
-    FloatT parsed_float = strtof(current, &parsed_float_end);
-    if (parsed_float_end > parsed_int_end) {
-      // strtof parsed more, use that
-      tok.kind = Token::LITERAL;
-      tok.span = {current, static_cast<size_t>(parsed_float_end - current)};
-      tok.literal = parsed_float;
-    } else if (parsed_int_end > current) {
-      // strtol parsed something...
-      tok.kind = Token::LITERAL;
-      tok.span = {current, static_cast<size_t>(parsed_int_end - current)};
-      tok.literal = parsed_int;
+        tok = {
+          Token::LITERAL,
+          {current, static_cast<CharStrView::size_type>(parsed_float_end - current)},
+          parsed_float
+        };
+        return true;
+      } else if (parsed_int_end > current) {
+        // strtol parsed something...
+        tok = {
+          Token::LITERAL,
+          {current, static_cast<CharStrView::size_type>(parsed_int_end - current)},
+          parsed_int
+        };
+        return true;
+      }
     }
-    
-    return tok;
+
+    return false;
   }
 
   char32_t Tokenizer::_parse_octal_char() {
@@ -206,10 +202,27 @@ namespace tesl {
       }
     }
 
-    tok.span = {tok.span.begin(), static_cast<size_t>(current - tok.span.begin())};
-    tok.kind = Token::LITERAL;
-    tok.literal = MOV(result);
+    tok = {
+      Token::LITERAL,
+      {tok.span.begin(), static_cast<CharStrView::size_type>(current - tok.span.begin())},
+      MOV(result)
+    };
     return tok;
+  }
+
+  bool Tokenizer::_try_tokenize_identifier_literal(Token & tok) {
+    if (is_valid_id_starter(tok.span[0])) {
+      CharStrView::size_type len = 1;
+      while (is_valid_id_meat(tok.span[len])) {
+        len++;
+      }
+      tok = {
+        Token::IDENTIFIER,
+        {tok.span.begin(), len}
+      };
+      return true;
+    }
+    return false;
   }
 
 #define extend_span(sv) ((sv) = CharStrView{(sv).begin(), (sv).size() + 1})
@@ -224,291 +237,104 @@ namespace tesl {
       token = {};
       token.span = {current, 0};
 
-
-
-      /*switch (token.span[0]) {
+      switch (current[0]) {
         case '\0':
+          // end of input token
           token.kind = Token::END;
           break;
-
-#define MATCH_TOKEN(str) strncmp(token.span.data() + 1, str + 1, sizeof(str) - 2)
-#define TOKEN(str, name) \
-  if (MATCH_TOKEN(str)) { \
-    token.kind = Token::name; \
-    token.span = {}; \
-    break; \
-  }
-#define TOKEN_LITERAL(str, value) \
-  if (MATCH_TOKEN(str)) { \
-    token.kind = Token::LITERAL; \
-    token.literal = value; \
-    token.span = {}; \
-    break; \
-  }
-#define GROUP_START(c) case c: {
-#define GROUP_END } break;
-#include "tesl_tokens.inl"
-#undef GROUP_END
-#undef GROUP_START
-#undef TOKEN_LITERAL
-#undef TOKEN
-#undef MATCH_TOKEN
-
-      }*/
-
-
-
-      if (token.span[0] == '\0') {
-        token.kind = Token::END;
-        continue;
-      }
-
-      // number literal
-      if (is_digit(token.span[0]) || (token.span[0] == '.' && is_digit(token.span[1]))) {
-        token = _tokenize_number_literal();
-        continue;
-      }
-
-      // string literal
-      if (token.span[0] == '"') {
-        token = _tokenize_string_literal();
-        continue;
-      }
-
-      // identifier
-      if (validate_id(token.span)) {
-        const IntT id_len = token.span.size();
-
-#define MATCHES_TOKEN_(str) (id_len == (sizeof(str) - 1) && strncmp(str, token.span.data(), id_len) == 0)
-        switch (token.span[0]) {
-          case 'b': {
-            if (MATCHES_TOKEN_("break")) {
-              token.kind = Token::BREAK;
-            }
-          } break;
-          case 'c': {
-            if (MATCHES_TOKEN_("case")) {
-              token.kind = Token::CASE;
-            } else if (MATCHES_TOKEN_("continue")) {
-              token.kind = Token::CONTINUE;
-            }
-          } break;
-          case 'd': {
-            if (MATCHES_TOKEN_("do")) {
-              token.kind = Token::DO;
-            }
-          } break;
-          case 'e': {
-            if (MATCHES_TOKEN_("else")) {
-              token.kind = Token::ELSE;
-            }
-          } break;
-          case 'f': {
-            if (MATCHES_TOKEN_("false")) {
-              token.kind = Token::LITERAL;
-              token.literal = false;
-            } else if (MATCHES_TOKEN_("for")) {
-              token.kind = Token::FOR;
-            }
-          } break;
-          case 'i': {
-            if (MATCHES_TOKEN_("if")) {
-              token.kind = Token::IF;
-            }
-          } break;
-          case 'r': {
-            if (MATCHES_TOKEN_("return")) {
-              token.kind = Token::RETURN;
-            }
-          } break;
-          case 's': {
-            if (MATCHES_TOKEN_("switch")) {
-              token.kind = Token::SWITCH;
-            }
-          } break;
-          case 't': {
-            if (MATCHES_TOKEN_("true")) {
-              token.kind = Token::LITERAL;
-              token.literal = true;
-            }
-          } break;
-          case 'w': {
-            if (MATCHES_TOKEN_("while")) {
-              token.kind = Token::WHILE;
-            }
-          } break;
-        }
-#undef MATCHES_TOKEN_
-
-        if (token.kind == Token::NONE) {
-          token.kind = Token::IDENTIFIER;
-        }
-  
-        break;
-      }
-
-      // special
-      extend_span(token.span);
-      switch (token.span[0]) {
-        case '&': {
-          if (*token.span.end() == '&') {
-            extend_span(token.span);
-            token.kind = Token::AND_AND;
-          } else {
-            token.kind = Token::AND;
-          }
-        } break;
-        case '^': {
-          token.kind = Token::CARET;
-        } break;
-        case '|': {
-          if (*token.span.end() == '|') {
-            extend_span(token.span);
-            token.kind = Token::PIPE_PIPE;
-          } else {
-            token.kind = Token::PIPE;
-          }
-        } break;
-        case '=': {
-          if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::EQUAL_EQUAL;
-          } else {
-            token.kind = Token::EQUAL;
-          }
-        } break;
-        case '!': {
-          if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::BANG_EQUAL;
-          } else {
-            token.kind = Token::BANG;
-          }
-        } break;
-        case '<': {
-          if (*token.span.end() == '<') {
-            extend_span(token.span);
-            token.kind = Token::LESS_LESS;
-          } else if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::LESS_EQUAL;
-          } else {
-            token.kind = Token::LESS;
-          }
-        } break;
-        case '>': {
-          if (*token.span.end() == '>') {
-            extend_span(token.span);
-            token.kind = Token::GREATER_GREATER;
-          } else if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::GREATER_EQUAL;
-          } else {
-            token.kind = Token::GREATER;
-          }
-        } break;
-        case '+': {
-          if (*token.span.end() == '+') {
-            extend_span(token.span);
-            token.kind = Token::PLUS_PLUS;
-          } else if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::PLUS_EQUAL;
-          } else {
-            token.kind = Token::PLUS;
-          }
-        } break;
-        case '-': {
-          if (*token.span.end() == '-') {
-            extend_span(token.span);
-            token.kind = Token::MINUS_MINUS;
-          } else if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::MINUS_EQUAL;
-          } else {
-            token.kind = Token::MINUS;
-          }
-        } break;
-        case '*': {
-          if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::STAR_EQUAL;
-          } else {
-            token.kind = Token::STAR;
-          }
-        } break;
-        case '/': {
-          if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::SLASH_EQUAL;
-          } else {
-            token.kind = Token::SLASH;
-          }
-        } break;
-        case '%': {
-          if (*token.span.end() == '=') {
-            extend_span(token.span);
-            token.kind = Token::PERCENT_EQUAL;
-          } else {
-            token.kind = Token::PERCENT;
-          }
-        } break;
-        case '(':
-          token.kind = Token::OPEN_PAREN;
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+          // number literal token
+          _try_tokenize_number_literal(token);
           break;
-        case ')':
-          token.kind = Token::CLOSE_PAREN;
-          break;
-        case '[':
-          token.kind = Token::OPEN_SQUARE_BRACKET;
-          break;
-        case ']':
-          token.kind = Token::CLOSE_SQUARE_BRACKET;
-          break;
-        case '{':
-          token.kind = Token::OPEN_CURLY_BRACKET;
-          break;
-        case '}':
-          token.kind = Token::CLOSE_CURLY_BRACKET;
-          break;
-        case ',':
-          token.kind = Token::COMMA;
-          break;
-        case '.':
-          token.kind = Token::DOT;
-          break;
-        case ';':
-          token.kind = Token::SEMICOLON;
-          break;
-        case ':':
-          token.kind = Token::COLON;
-          break;
-        case '?':
-          token.kind = Token::QUESTION_MARK;
+        case '"':
+          // string literal token
+          token = _tokenize_string_literal();
           break;
         case '\r':
-          if (token.span.end()[0] == '\n') extend_span(token.span);
+          if (token.span.end()[1] == '\n') {
+            extend_span(token.span);
+          }
           // fallthrough
         case '\n':
+          extend_span(token.span);
           new_line = true;
           line_num++;
           line_start = token.span.end();
           break;
         case ' ':
         case '\t':
+          extend_span(token.span);
           break;
         default: {
           tokenizer_error("error: unrecognised token: {}", token);
-          print_error(line_num, line_start, token.span.data(), token.span.data(), token.span.end());
+          print_error(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
         } break;
+
+#define MATCH_TOKEN(str) \
+  strncmp(current + 1, str + 1, sizeof(str)-1 - 1) == 0
+#define TOKEN(str, name) \
+  if (MATCH_TOKEN(str)) { \
+    token.kind = Token::name; \
+    token.span = {token.span.begin(), sizeof(str)-1}; \
+    break; \
+  }
+#define TOKEN_LITERAL(str, value) \
+  if (MATCH_TOKEN(str)) { \
+    token.kind = Token::LITERAL; \
+    token.literal = value; \
+    token.span = {token.span.begin(), sizeof(str)-1}; \
+    break; \
+  }
+#define TOKEN_NUMBER \
+  if (_try_tokenize_number_literal(token)) { \
+    break; \
+  }
+#define GROUP_START(c) \
+  case c: {
+#define GROUP_END \
+  } break;
+#include "tesl_tokens.inl"
+#undef GROUP_END
+#undef GROUP_START
+#undef TOKEN_NUMBER
+#undef TOKEN_LITERAL
+#undef TOKEN
+#undef MATCH_TOKEN
+
       }
-    } while (token.kind == Token::NONE);
+
+      if (token.kind != Token::NONE) {
+        break;
+      }
+
+      // identifier token
+      if (_try_tokenize_identifier_literal(token)) {
+        break;
+      }
+#ifdef TESL_DEBUG_TOKENIZER
+      if (token.kind == Token::NONE && token.span.size() == 0) {
+        tokenizer_error("internal error: failed to consume any input! (char value: {:#04})", static_cast<int>(token.span[0]));
+        extend_span(token.span);
+      }
+#endif
+    } while (true);
 
     current = token.span.end();
+#ifdef TESL_DEBUG_TOKENIZER
     if (token.kind != Token::END && token.span.size() == 0) {
+      tokenizer_error("internal error: zero-length token! (char value: {:#04})", static_cast<int>(token.span[0]));
       current++;
-      tokenizer_error("internal error: zero-length token!");
     }
+#endif
 
     return token;
   }

@@ -5,6 +5,7 @@
 // GROUP_END will denote the end of a group
 // TOKEN(str, name) will give the match string and the name of the token
 // TOKEN_LITERAL(str, value) will give the match string and the value of a token literal
+// TOKEN_NUMBER will denote where a number could parse
 
 GROUP_START('!')
 TOKEN("!=", BANG_EQUAL)
@@ -42,6 +43,7 @@ TOKEN("--", MINUS_MINUS)
 TOKEN("-", MINUS)
 GROUP_END
 GROUP_START('.')
+TOKEN_NUMBER
 TOKEN(".", DOT)
 GROUP_END
 GROUP_START('/')
