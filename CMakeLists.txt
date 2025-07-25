@@ -108,7 +108,7 @@ if (TARGET_PY32)
 
     target_sources(${PROJECT_NAME}.elf PRIVATE
         main.cpp
-        tesl_vector.hpp
+        tesl_array.hpp
         #tesl.hpp tesl.cpp
         tesl_common.hpp tesl_common.cpp
         tesl_tokenizer.hpp tesl_tokenizer.cpp
@@ -124,6 +124,7 @@ else ()
     add_executable(tesl
         main.cpp
         #tesl.hpp tesl.cpp
+        tesl_array.hpp
         tesl_common.hpp tesl_common.cpp
         tesl_fmt.hpp tesl_fmt.cpp
         tesl_hash.hpp tesl_hash.cpp
@@ -132,8 +133,7 @@ else ()
         #tesl_parser.hpp tesl_parser.cpp
         tesl_symbol.hpp tesl_symbol.cpp
         tesl_type.hpp tesl_type.cpp
-        tesl_var.hpp tesl_var.cpp
-        tesl_vector.hpp)
+        tesl_var.hpp tesl_var.cpp)
 
     #add_subdirectory(fmt)
     #target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0)

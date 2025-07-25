@@ -1,10 +1,10 @@
 #pragma once
 
-#include "tesl_vector.hpp"
+#include "tesl_array.hpp"
 
 namespace tesl {
   struct Compiler {
-    Vector<uint8_t> _bytecode;
+    Array<uint8_t> _bytecode;
   };
   /*struct Compiler {
     Parser & parser;

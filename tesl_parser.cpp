@@ -66,7 +66,7 @@ namespace tesl {
   };
   /*struct ExprResult {
     const TypeInfo * type;
-    Vector<uint8_t, 8> _bytecode;
+    Array<uint8_t, 8> _bytecode;
 
     bool is_empty() { return _bytecode.is_empty(); }
     void emit(Compiler & compiler) {
@@ -127,7 +127,7 @@ namespace tesl {
     }
   };
 
-  struct Parser::ParseSequence : public Vector<Parser::ParseResult, 3> {};
+  struct Parser::ParseSequence : public Array<Parser::ParseResult, 3> {};
 
   Parser::ParseResult Parser::parse_literal_expr(ParseSequence sequence) {
     PARSE_DEBUG(s, sequence);
@@ -392,9 +392,9 @@ namespace tesl {
       bool is_valid() const { return element_index > 0 && element_index < pattern.size() && pattern.is_valid(); }
       element_ref_t follow() const;
 
-      void _get_branch_choices_impl(Vector<element_ref_t, 0> & choices) const;
-      Vector<element_ref_t, 0> get_branch_choices() const {
-        static thread_local Vector<element_ref_t, 0> choices;
+      void _get_branch_choices_impl(Array<element_ref_t, 0> & choices) const;
+      Array<element_ref_t, 0> get_branch_choices() const {
+        static thread_local Array<element_ref_t, 0> choices;
         choices.clear();
         _get_branch_choices_impl(choices);
         return choices;
@@ -462,7 +462,7 @@ namespace tesl {
       return {pattern, i};
     }
 
-    void element_ref_t::_get_branch_choices_impl(Vector<element_ref_t, 0> & choices) const {
+    void element_ref_t::_get_branch_choices_impl(Array<element_ref_t, 0> & choices) const {
       if (choices.has(*this)) {
         return;
       }

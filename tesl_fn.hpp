@@ -2,12 +2,12 @@
 
 #include "tesl_common.hpp"
 #include "tesl_type.hpp"
-#include "tesl_vector.hpp"
+#include "tesl_array.hpp"
 
 namespace tesl {
   struct FnObj : public FnObjBase {
     const TypeInfo * return_type = type_info_of<Null>;
-    Vector<const TypeInfo *, 1> param_types;
+    Array<const TypeInfo *, 1> param_types;
   };
 
 

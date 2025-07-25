@@ -4,25 +4,25 @@
 
 namespace tesl {
   template<typename T>
-  union VectorStorageT {
+  union ArrayStorageT {
     char _storage[sizeof(T)];
     T value;
   };
 
   namespace detail {
     template<typename T, IntT LocalCapacity = 0>
-    struct VectorBase {
+    struct ArrayBaseT {
     protected:
-      VectorStorageT<T> * _data = _local_storage;
+      ArrayStorageT<T> * _data = _local_storage;
       IntT _size = 0;
       IntT _capacity = LocalCapacity;
-      VectorStorageT<T> _local_storage[LocalCapacity];
+      ArrayStorageT<T> _local_storage[LocalCapacity];
       TESL_ALWAYS_INLINE constexpr bool is_heap_allocated() { return _data != _local_storage; }
       TESL_ALWAYS_INLINE constexpr void reset_data() {
         _capacity = LocalCapacity;
         _data = _local_storage;
       }
-      TESL_ALWAYS_INLINE void swap(VectorBase & other) {
+      TESL_ALWAYS_INLINE void swap(ArrayBaseT & other) {
         if (!is_heap_allocated()) {
           _data = other._local_storage;
           if (!other.is_heap_allocated()) {
@@ -63,7 +63,7 @@ namespace tesl {
     };
 
     template<typename T>
-    struct VectorBase<T, 0> {
+    struct ArrayBaseT<T, 0> {
     protected:
       T * _data = nullptr;
       IntT _size = 0;
@@ -73,7 +73,7 @@ namespace tesl {
         _capacity = 0;
         _data = nullptr;
       }
-      TESL_ALWAYS_INLINE void swap(VectorBase & other) {
+      TESL_ALWAYS_INLINE void swap(ArrayBaseT & other) {
         memswap(*this, other);
       }
     };
@@ -81,8 +81,8 @@ namespace tesl {
 
   // capacity doesn't shink unless cleared
   template<typename T, IntT LocalCapacity = 1>
-  struct Vector : detail::VectorBase<T, LocalCapacity> {
-    using base = detail::VectorBase<T, LocalCapacity>;
+  struct Array : detail::ArrayBaseT<T, LocalCapacity> {
+    using base = detail::ArrayBaseT<T, LocalCapacity>;
     //static_assert(std::is_trivially_move_constructible_v<T> || std::is_trivially_move_assignable_v<T>);
 
     TESL_ALWAYS_INLINE constexpr T & operator[](IntT i) {
@@ -112,9 +112,9 @@ namespace tesl {
         requested_capacity = max(min_capacity, requested_capacity);
       }
 
-      VectorStorageT<T> *m_old_data = base::_data;
+      ArrayStorageT<T> *m_old_data = base::_data;
       bool was_heap_allocated = base::is_heap_allocated();
-      base::_data = new VectorStorageT<T>[requested_capacity];
+      base::_data = new ArrayStorageT<T>[requested_capacity];
       for (IntT i = 0; i < base::_size; ++i) {
         std::construct_at(&base::_data[i].value, MOV(m_old_data[i].value));
       }
@@ -214,7 +214,7 @@ namespace tesl {
     }
 
     template<IntT LC>
-    constexpr Vector & operator+=(const Vector<T, LC> & other) {
+    constexpr Array & operator+=(const Array<T, LC> & other) {
       reserve(base::_size + other.size());
       for (IntT i = base::_size, j = 0; j < other.size(); ++i, ++j) {
         base::_size = i + 1;
@@ -223,7 +223,7 @@ namespace tesl {
       return *this;
     }
 
-    constexpr Vector & operator+=(const ArrayView<T> & buffer) {
+    constexpr Array & operator+=(const ArrayView<T> & buffer) {
       reserve(base::_size + buffer.size());
       for (IntT i = base::_size, j = 0; j < buffer.size(); ++i, ++j) {
         base::_size = i + 1;
@@ -232,7 +232,7 @@ namespace tesl {
       return *this;
     }
 
-    constexpr Vector & operator+=(const ArrayView<const T> & buffer) {
+    constexpr Array & operator+=(const ArrayView<const T> & buffer) {
       reserve(base::_size + buffer.size());
       for (IntT i = base::_size, j = 0; j < buffer.size(); ++i, ++j) {
         base::_size = i + 1;
@@ -243,11 +243,11 @@ namespace tesl {
 
     template<typename TOther>
     TESL_ALWAYS_INLINE constexpr void operator+(const TOther & other) {
-      Vector result = *this;
+      Array result = *this;
       return result += other;
     }
 
-    constexpr bool operator==(const Vector & other) {
+    constexpr bool operator==(const Array & other) {
       if (base::_size != other._size) return false;
 
       for (IntT i = 0; i < base::_size; ++i) {
@@ -259,21 +259,21 @@ namespace tesl {
       return true;
     }
 
-    TESL_ALWAYS_INLINE constexpr bool operator!=(const Vector & other) {
+    TESL_ALWAYS_INLINE constexpr bool operator!=(const Array & other) {
       return !this->operator==(other);      
     }
 
-    TESL_ALWAYS_INLINE constexpr Vector & operator=(const ArrayView<T> & buffer) {
+    TESL_ALWAYS_INLINE constexpr Array & operator=(const ArrayView<T> & buffer) {
       clear(false);
       return this->operator+=(buffer);
     }
 
-    TESL_ALWAYS_INLINE constexpr Vector & operator=(const ArrayView<const T> & buffer) {
+    TESL_ALWAYS_INLINE constexpr Array & operator=(const ArrayView<const T> & buffer) {
       clear(false);
       return this->operator+=(buffer);
     }
 
-    constexpr Vector & operator=(const Vector & other) {
+    constexpr Array & operator=(const Array & other) {
       clear(false);
       reserve(other._size);
       for (IntT i = 0; i < other._size; ++i) {
@@ -283,15 +283,15 @@ namespace tesl {
       return *this;
     }
 
-    constexpr Vector & operator=(Vector && other) {
+    constexpr Array & operator=(Array && other) {
       base::swap(other);
       return *this;
     }
 
-    TESL_ALWAYS_INLINE constexpr Vector(const ArrayView<const T> & buffer) { this->operator+=(buffer); }
-    TESL_ALWAYS_INLINE constexpr Vector(const Vector & other) { this->operator=(other); }
-    TESL_ALWAYS_INLINE constexpr Vector(Vector && other) { this->operator=(other); }
-    TESL_ALWAYS_INLINE constexpr Vector() = default;
-    TESL_ALWAYS_INLINE constexpr ~Vector() { clear(); }
+    TESL_ALWAYS_INLINE constexpr Array(const ArrayView<const T> & buffer) { this->operator+=(buffer); }
+    TESL_ALWAYS_INLINE constexpr Array(const Array & other) { this->operator=(other); }
+    TESL_ALWAYS_INLINE constexpr Array(Array && other) { this->operator=(other); }
+    TESL_ALWAYS_INLINE constexpr Array() = default;
+    TESL_ALWAYS_INLINE constexpr ~Array() { clear(); }
   };
 } // namespace tesl

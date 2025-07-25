@@ -4,7 +4,7 @@
 #include "tesl_fmt_fwd.hpp"
 #include "tesl_hash.hpp"
 #include "tesl_type.hpp"
-#include "tesl_vector.hpp"
+#include "tesl_array.hpp"
 
 namespace tesl {
   // some members are just to get it to work with fmt
@@ -15,7 +15,7 @@ namespace tesl {
     using iterator = T *;
     using const_iterator = const T *;
 
-    Vector<T, 4 / sizeof(T)> _buffer;
+    Array<T, 4 / sizeof(T)> _buffer;
 
     constexpr IntT max_size() const {
       return std::numeric_limits<IntT>::max();

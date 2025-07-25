@@ -1,7 +1,7 @@
 #pragma once
 
 #include "tesl_str.hpp"
-#include "tesl_vector.hpp"
+#include "tesl_array.hpp"
 #include "tesl_map.hpp"
 
 namespace tesl {
@@ -22,8 +22,8 @@ namespace tesl {
 
 #ifdef TESL_COMPACT_METHOD_TABLE
   struct MethodTableImpl {
-    Vector<FnObjBase> _functions;
-    Vector<SymbolIndexT> _fn_indices;
+    Array<FnObjBase> _functions;
+    Array<SymbolIndexT> _fn_indices;
 
     FnObjBase * operator[](const Symbol & sym) {
       if (sym.index < _fn_indices.size()) {
@@ -47,7 +47,7 @@ namespace tesl {
   };
 #else
   struct MethodTableImpl {
-    Vector<FnObjBase> _functions;
+    Array<FnObjBase> _functions;
 
     FnObjBase * operator[](SymbolRef sym) {
       if (sym.index < _functions.size()) {

@@ -1,7 +1,6 @@
 #include "tesl_tokenizer.hpp"
 
 #include "tesl_str.hpp"
-#include "tesl_vector.hpp"
 #include "tesl_fmt.hpp"
 
 namespace tesl {
