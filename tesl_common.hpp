@@ -58,7 +58,7 @@
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
 
-#define TESL_UNREACHABLE abort();
+#define TESL_UNREACHABLE abort()
 
 namespace tesl {
   struct Null {};
@@ -145,8 +145,8 @@ namespace tesl {
   using Char32StrView = StrViewBaseT<char32_t>;
   using StrView = StrViewBaseT<CommonCharT>;
 
-#define ConstStrViewT(str) StrView{str, constexpr_strlen(str)}
-#define TESL_STRVIEW(str) ConstStrViewT(TESL_STR(str))
+#define ConstStrView(str) StrView{str, constexpr_strlen(str)}
+#define TESL_STRVIEW(str) ConstStrView(TESL_STR(str))
 
   constexpr IntT variant_storage_size = sizeof(void *);
 
