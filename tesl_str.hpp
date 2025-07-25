@@ -25,23 +25,7 @@ namespace tesl {
       return _buffer == other._buffer;
     }
 
-    constexpr const T * c_str() const {
-      if (_buffer.is_empty()) {
-        if constexpr (std::is_same_v<T, wchar_t>) {
-          return L"";
-        } else if constexpr (std::is_same_v<T, char16_t>) {
-          return u"";
-        } else if constexpr (std::is_same_v<T, char32_t>) {
-          return U"";
-        } else {
-          static_assert(std::is_same_v<T, char>, "unknown char type!");
-          return "";
-        }
-      }
-
-      return _buffer.data();
-    }
-
+    TESL_ALWAYS_INLINE constexpr const T * c_str() const { return _buffer.data(); }
     TESL_ALWAYS_INLINE constexpr const T * data() const { return _buffer.data(); }
     TESL_ALWAYS_INLINE constexpr T * data() { return _buffer.data(); }
     TESL_ALWAYS_INLINE constexpr const T * begin() const { return _buffer.begin(); }

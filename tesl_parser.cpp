@@ -567,11 +567,11 @@ namespace tesl {
       static constexpr int size = ElementCount;
       element_t elements[ElementCount];
 
-      TESL_ALWAYS_INLINE constexpr operator const element_t *() const { return elements; }
+      constexpr operator const element_t *() const { return elements; }
     };
 
     template<typename ... Ts>
-    TESL_ALWAYS_INLINE constexpr pattern_t<sizeof...(Ts)> make_pattern(Ts ... elements) {
+    constexpr pattern_t<sizeof...(Ts)> make_pattern(Ts ... elements) {
       static_assert(sizeof...(elements) > 0);
       return {element_t{elements}...};
     }
@@ -592,7 +592,7 @@ namespace tesl {
       rule_t<V> this_rule;
       static constexpr int size = sizeof...(NextVs) + 1;
 
-      TESL_ALWAYS_INLINE constexpr rule_ref_storage_t operator[](int i) {
+      constexpr rule_ref_storage_t operator[](int i) {
         if (i < 0) {
           return {};
         } else if (i == 0) {
@@ -602,7 +602,7 @@ namespace tesl {
         }
       }
 
-      TESL_ALWAYS_INLINE constexpr rule_list_t(rule_t<V> rule, rule_t<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
+      constexpr rule_list_t(rule_t<V> rule, rule_t<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
     };
 
     template<>
@@ -610,7 +610,7 @@ namespace tesl {
       rule_t<0> pattern;
       static constexpr int size = 0;
 
-      TESL_ALWAYS_INLINE constexpr rule_ref_storage_t operator[](int i) {
+      constexpr rule_ref_storage_t operator[](int i) {
         return {};
       }
     };
@@ -628,7 +628,7 @@ namespace tesl {
       rule_ref_storage_t list_rules[sizeof...(Vs)];
       static constexpr int size = sizeof...(NextTs) + 1;
 
-      TESL_ALWAYS_INLINE constexpr rule_ref_list_storage_t operator[](int i) {
+      constexpr rule_ref_list_storage_t operator[](int i) {
         if (i < 0) {
           return {};
         } else if (i == 0) {
@@ -638,7 +638,7 @@ namespace tesl {
         }
       }
 
-      TESL_ALWAYS_INLINE constexpr rule_library_impl(rule_list_t<value_pack<Vs...>> rule_list, rule_list_t<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
+      constexpr rule_library_impl(rule_list_t<value_pack<Vs...>> rule_list, rule_list_t<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
         for (int i = 0; i < sizeof...(Vs); ++i) {
           list_rules[i] = this_list[i];
         }
@@ -649,7 +649,7 @@ namespace tesl {
     struct rule_library_impl<type_pack<>> {
       static constexpr int size = 0;
 
-      TESL_ALWAYS_INLINE constexpr rule_ref_list_storage_t operator[](int i) {
+      constexpr rule_ref_list_storage_t operator[](int i) {
         return {};
       }
     };
@@ -660,10 +660,10 @@ namespace tesl {
       const int size;
       const int max_precedence;
 
-      TESL_ALWAYS_INLINE constexpr rule_ref_list_t operator[](uint8_t p) const { return {lists[p], info, p}; }
+      constexpr rule_ref_list_t operator[](uint8_t p) const { return {lists[p], info, p}; }
 
       template<typename T>
-      TESL_ALWAYS_INLINE constexpr rule_library_ref_t(const T & library) : info(library.info), lists(library.lists), size(library.size), max_precedence(library.max_precedence) {}
+      constexpr rule_library_ref_t(const T & library) : info(library.info), lists(library.lists), size(library.size), max_precedence(library.max_precedence) {}
 
       rule_ref_t find_rule_precedence(Token::Kind token, int precedence, int element_index) const;
       ParseResult parse_precedence(te_parser_state & s, int precedence) const;
@@ -687,7 +687,7 @@ namespace tesl {
         return &ref;
       }
 
-      TESL_ALWAYS_INLINE constexpr rule_library_t(const char * l, rule_list_t<Ts> ... rule_lists) : base(rule_lists...), info(l, size, max_precedence), ref(*this) {
+      constexpr rule_library_t(const char * l, rule_list_t<Ts> ... rule_lists) : base(rule_lists...), info(l, size, max_precedence), ref(*this) {
         for (int i = 0; i < sizeof...(Ts); ++i) {
           lists[i] = base::operator[](i);
         }
@@ -695,17 +695,17 @@ namespace tesl {
     };
 
     template<int ElementCount>
-    TESL_ALWAYS_INLINE constexpr rule_t<ElementCount> make_rule(parse_fn parse_fn, pattern_t<ElementCount> pattern) {
+    constexpr rule_t<ElementCount> make_rule(parse_fn parse_fn, pattern_t<ElementCount> pattern) {
       return {parse_fn, pattern};
     }
 
     template<int ... Vs>
-    TESL_ALWAYS_INLINE constexpr auto make_rule_list(rule_t<Vs> ... rules) {
+    constexpr auto make_rule_list(rule_t<Vs> ... rules) {
       return rule_list_t<util::value_pack<Vs...>>{rules...};
     }
 
     template<typename ... Ts>
-    TESL_ALWAYS_INLINE constexpr auto make_rule_library(const char * label, rule_list_t<Ts> ... lists) {
+    constexpr auto make_rule_library(const char * label, rule_list_t<Ts> ... lists) {
       return rule_library_t<Ts...>{label, lists...};
     }
 

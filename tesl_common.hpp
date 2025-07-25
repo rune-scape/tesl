@@ -178,7 +178,7 @@ namespace tesl {
   }
 
   template<typename T>
-  TESL_ALWAYS_INLINE T min(T a, T b) {
+  T min(T a, T b) {
     if (a > b) {
       return b;
     } else {
@@ -187,7 +187,7 @@ namespace tesl {
   }
 
   template<typename T>
-  TESL_ALWAYS_INLINE T max(T a, T b) {
+  T max(T a, T b) {
     if (a < b) {
       return b;
     } else {

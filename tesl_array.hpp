@@ -17,12 +17,12 @@ namespace tesl {
       IntT _size = 0;
       IntT _capacity = LocalCapacity;
       ArrayStorageT<T> _local_storage[LocalCapacity];
-      TESL_ALWAYS_INLINE constexpr bool is_heap_allocated() { return _data != _local_storage; }
-      TESL_ALWAYS_INLINE constexpr void reset_data() {
+      constexpr bool is_heap_allocated() { return _data != _local_storage; }
+      constexpr void reset_data() {
         _capacity = LocalCapacity;
         _data = _local_storage;
       }
-      TESL_ALWAYS_INLINE void swap(ArrayBaseT & other) {
+      void swap(ArrayBaseT & other) {
         if (!is_heap_allocated()) {
           _data = other._local_storage;
           if (!other.is_heap_allocated()) {
@@ -68,12 +68,12 @@ namespace tesl {
       T * _data = nullptr;
       IntT _size = 0;
       IntT _capacity = 0;
-      TESL_ALWAYS_INLINE constexpr bool is_heap_allocated() { return _data != nullptr; }
-      TESL_ALWAYS_INLINE constexpr void reset_data() {
+      constexpr bool is_heap_allocated() { return _data != nullptr; }
+      constexpr void reset_data() {
         _capacity = 0;
         _data = nullptr;
       }
-      TESL_ALWAYS_INLINE void swap(ArrayBaseT & other) {
+      void swap(ArrayBaseT & other) {
         memswap(*this, other);
       }
     };
@@ -150,7 +150,7 @@ namespace tesl {
     constexpr TESL_ALWAYS_INLINE const T * end() const { return data() + base::_size; }
 
     template<typename VT>
-    constexpr bool has(VT && v) const {
+    TESL_ALWAYS_INLINE constexpr bool has(VT && v) const {
       return find(v) >= 0;
     }
 
@@ -187,12 +187,12 @@ namespace tesl {
     }
 
     template<typename VT>
-    constexpr T & push_back(VT && v) {
+    TESL_ALWAYS_INLINE constexpr T & push_back(VT && v) {
       return insert(base::_size, FWD(v));
     }
 
     template<typename VT>
-    constexpr T & push_front(VT && v) {
+    TESL_ALWAYS_INLINE constexpr T & push_front(VT && v) {
       return insert(0, FWD(v));
     }
 
@@ -283,7 +283,7 @@ namespace tesl {
       return *this;
     }
 
-    constexpr Array & operator=(Array && other) {
+    TESL_ALWAYS_INLINE constexpr Array & operator=(Array && other) {
       base::swap(other);
       return *this;
     }
