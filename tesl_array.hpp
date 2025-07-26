@@ -242,12 +242,12 @@ namespace tesl {
     }
 
     template<typename TOther>
-    TESL_ALWAYS_INLINE constexpr void operator+(const TOther & other) {
+    TESL_ALWAYS_INLINE constexpr void operator+(const TOther & other) const {
       Array result = *this;
       return result += other;
     }
 
-    constexpr bool operator==(const Array & other) {
+    constexpr bool operator==(const Array & other) const {
       if (base::_size != other._size) return false;
 
       for (IntT i = 0; i < base::_size; ++i) {
@@ -259,7 +259,7 @@ namespace tesl {
       return true;
     }
 
-    TESL_ALWAYS_INLINE constexpr bool operator!=(const Array & other) {
+    TESL_ALWAYS_INLINE constexpr bool operator!=(const Array & other) const {
       return !this->operator==(other);      
     }
 
