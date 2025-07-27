@@ -14,6 +14,7 @@ endif ()
 add_executable(tesl
     main.cpp
     #tesl.hpp tesl.cpp
+    tesl_str.hpp tesl_str.cpp
     tesl_array.hpp
     tesl_common.hpp tesl_common.cpp
     tesl_fmt.hpp tesl_fmt.cpp

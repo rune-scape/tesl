@@ -85,6 +85,11 @@ namespace tesl {
     }
   };
 
+  extern template struct BasicStrT<char>;
+  extern template struct BasicStrT<wchar_t>;
+  extern template struct BasicStrT<char16_t>;
+  extern template struct BasicStrT<char32_t>;
+
   using CharStr = BasicStrT<char>;
   using WCharStr = BasicStrT<wchar_t>;
   using Char16Str = BasicStrT<char16_t>;
