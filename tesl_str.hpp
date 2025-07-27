@@ -53,7 +53,7 @@ namespace tesl {
       _buffer += other._buffer;
       return *this;
     }
-    TESL_ALWAYS_INLINE constexpr BasicStrT & operator+(BasicStrT other) const {
+    TESL_ALWAYS_INLINE constexpr BasicStrT operator+(BasicStrT other) const {
       BasicStrT result{*this};
       result += other;
       return result;
@@ -76,7 +76,7 @@ namespace tesl {
       _buffer += ArrayView{str, len};
       _buffer.push_back('\0');
     }
-    TESL_ALWAYS_INLINE constexpr BasicStrT(const T * str, UIntT len) : BasicStrT(str, static_cast<IntT>(len)) {}
+    TESL_ALWAYS_INLINE constexpr BasicStrT(const T * str, size_t len) : BasicStrT(str, static_cast<IntT>(len)) {}
 
     template<typename T2>
     TESL_ALWAYS_INLINE BasicStrT(const T2 * str) : BasicStrT(str, string_length(str)) {}
