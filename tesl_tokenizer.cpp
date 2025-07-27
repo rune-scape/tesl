@@ -279,7 +279,7 @@ namespace tesl {
         } break;
 
 #define MATCH_TOKEN(str) \
-  strncmp(current + 1, str + 1, sizeof(str)-1 - 1) == 0
+  strncmp(&current[1], &str[1], sizeof(str)-1 - 1) == 0
 #define TOKEN(str, name) \
   if (MATCH_TOKEN(str)) { \
     token.kind = Token::name; \
