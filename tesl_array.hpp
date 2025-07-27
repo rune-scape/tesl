@@ -7,6 +7,9 @@ namespace tesl {
   union ArrayStorageT {
     char _storage[sizeof(T)];
     T value;
+
+    constexpr ArrayStorageT() {}
+    constexpr ~ArrayStorageT() {}
   };
 
   namespace detail {
