@@ -59,7 +59,7 @@ namespace tesl {
 
     template<typename T, IntT N>
     constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, Ref<TypeInfo> return_type, const T (&param_types)[N]) {
-      return make_function_raw(fn, context, pure, return_types, {param_types, N});
+      return make_function_raw(fn, context, pure, return_type, {param_types, N});
     }
 
     template<auto Fn, bool Pure, typename R, typename ... Ps>
