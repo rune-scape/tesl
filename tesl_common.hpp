@@ -228,7 +228,11 @@ namespace tesl {
     memcpy(reinterpret_cast<void *>(&b), reinterpret_cast<void *>(tmp), sizeof(T));
   }
 
-  void print_error(int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end);
+  void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end);
+
+  inline void print_error_source(int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end) {
+    print_error_sourcev(stderr, line_num, line_start, error_start, error_point, error_end);
+  }
 
   /*template<typename ... Ts>
   inline void printv(Ts && ... vs) {

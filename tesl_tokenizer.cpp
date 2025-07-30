@@ -115,7 +115,7 @@ namespace tesl {
           break;
         default:
           tokenizer_error("error: invalid hex number!");
-          print_error(line_num, line_start, start, current, start + len);
+          print_error_source(line_num, line_start, start, current, start + len);
           return U'\0';
       }
       result <<= 4;
@@ -146,7 +146,7 @@ namespace tesl {
         case '\n':
         case '\0':
           tokenizer_error("error: unexpected end of file!");
-          print_error(line_num, line_start, tok.span.data(), current - 1, current);
+          print_error_source(line_num, line_start, tok.span.data(), current - 1, current);
           end_of_str = true;
           break;
         case '\\':
@@ -190,7 +190,7 @@ namespace tesl {
               break;
             default:
               tokenizer_error("error: unknown escape sequence!");
-              print_error(line_num, line_start, tok.span.data(), current - 1, current);
+              print_error_source(line_num, line_start, tok.span.data(), current - 1, current);
               end_of_str = true;
               break;
           }
@@ -275,7 +275,7 @@ namespace tesl {
           break;
         default: {
           tokenizer_error("error: unrecognised token: {}", token);
-          print_error(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
+          print_error_source(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
         } break;
 
 #define MATCH_TOKEN(str) \

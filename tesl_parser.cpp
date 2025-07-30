@@ -1010,7 +1010,7 @@ do {\
     if (this_error != nullptr) {
       this_error->print();
     } else {
-      print_error(line_num, line_start, curr_token.name.ptr, curr_token.name.ptr, curr_token.name.end);
+      print_error_source(line_num, line_start, curr_token.name.ptr, curr_token.name.ptr, curr_token.name.end);
     }
   }
 } // namespace tesl
