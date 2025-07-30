@@ -21,15 +21,6 @@
 #define TESL_DEBUG_COMPILE
 //#define TESL_DEBUG_EVAL
 
-//#define TESL_DISABLE_PRINTF
-
-#ifdef TESL_DISABLE_PRINTF
-#define tesl_printf(...)
-#else
-#include <cstdio>
-#define tesl_printf(...) printf(__VA_ARGS__)
-#endif
-
 #ifndef TESL_DEBUG_COMPILE
 #define TE_FAIL_COND(cond, action)\
     if (cond) {\
