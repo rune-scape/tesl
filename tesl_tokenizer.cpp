@@ -280,33 +280,28 @@ namespace tesl {
 
 #define MATCH_TOKEN(str) \
   strncmp(&current[1], &str[1], sizeof(str)-1 - 1) == 0
-#define TOKEN(str, name) \
+#define TESL_TOKEN_BASIC_DEF(str, name) \
   if (MATCH_TOKEN(str)) { \
     token.kind = Token::name; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
     break; \
   }
-#define TOKEN_LITERAL(str, value) \
+#define TESL_TOKEN_LITERAL_DEF(str, value) \
   if (MATCH_TOKEN(str)) { \
     token.kind = Token::LITERAL; \
     token.literal = value; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
     break; \
   }
-#define TOKEN_NUMBER \
+#define TESL_TOKEN_POSSIBLE_NUMBER \
   if (_try_tokenize_number_literal(token)) { \
     break; \
   }
-#define GROUP_START(c) \
+#define TESL_TOKEN_GROUP(c) \
   case c: {
-#define GROUP_END \
+#define TESL_TOKEN_GROUP_END \
   } break;
 #include "tesl_tokens.inl"
-#undef GROUP_END
-#undef GROUP_START
-#undef TOKEN_NUMBER
-#undef TOKEN_LITERAL
-#undef TOKEN
 #undef MATCH_TOKEN
 
       }

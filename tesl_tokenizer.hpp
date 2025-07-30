@@ -12,17 +12,12 @@ namespace tesl {
       IDENTIFIER,
       LITERAL,
 
-#define TOKEN(str, name) name,
-#define TOKEN_LITERAL(str, value)
-#define TOKEN_NUMBER
-#define GROUP_START(...)
-#define GROUP_END
+#define TESL_TOKEN_BASIC_DEF(str, name) name,
+#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_GROUP(...)
+#define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"
-#undef GROUP_END
-#undef GROUP_START
-#undef TOKEN_NUMBER
-#undef TOKEN_LITERAL
-#undef TOKEN
 
     };
 
@@ -86,17 +81,12 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "literal {}", token.literal.get_type());
 
-#define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
-#define TOKEN_LITERAL(str, value)
-#define TOKEN_NUMBER
-#define GROUP_START(...)
-#define GROUP_END
+#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
+#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_GROUP(...)
+#define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"
-#undef GROUP_END
-#undef GROUP_START
-#undef TOKEN_NUMBER
-#undef TOKEN_LITERAL
-#undef TOKEN
 
     }
 
@@ -122,17 +112,12 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "{}", "<literal>");
 
-#define TOKEN(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
-#define TOKEN_LITERAL(str, value)
-#define TOKEN_NUMBER
-#define GROUP_START(...)
-#define GROUP_END
+#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
+#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_GROUP(...)
+#define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"
-#undef GROUP_END
-#undef GROUP_START
-#undef TOKEN_NUMBER
-#undef TOKEN_LITERAL
-#undef TOKEN
 
     }
 
