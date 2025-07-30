@@ -28,6 +28,23 @@ namespace tesl {
     return is_digit(c) || is_alpha(c) || c == '_';
   }
 
+  bool skip_newline(const char * & c) {
+    if (c[0] == '\n') {
+      c++;
+      return true;
+    } else if (c[0] == '\r') {
+      if (c[1] == '\n') {
+        c += 2;
+        return true;
+      } else {
+        c++;
+        return true;
+      }
+    }
+
+    return false;
+  }
+
 #define tokenizer_error(...) \
   do { \
     has_error = true; \
@@ -273,8 +290,14 @@ namespace tesl {
 
       switch (current[0]) {
         case '\0':
-          // end of input token
+          // end of input
           token.kind = Token::END;
+          break;
+        case '#':
+          while (!skip_newline(current)) {
+            current++;
+          }
+          token.span = {token.span.begin(), current - token.span.begin()};
           break;
         case '0':
         case '1':
