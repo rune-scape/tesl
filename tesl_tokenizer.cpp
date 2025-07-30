@@ -293,12 +293,6 @@ namespace tesl {
           // end of input
           token.kind = Token::END;
           break;
-        case '#':
-          while (!skip_newline(current)) {
-            current++;
-          }
-          token.span = {token.span.begin(), current - token.span.begin()};
-          break;
         case '0':
         case '1':
         case '2':
@@ -316,6 +310,16 @@ namespace tesl {
           // string literal token
           token = _tokenize_string_literal();
           break;
+        case '#': {
+          while (!skip_newline(current)) {
+            current++;
+          }
+          CharStrView::size_type len = current - token.span.begin();
+          token.span = {token.span.begin(), len};
+          new_line = true;
+          line_num++;
+          line_start = token.span.end();
+        } break;
         case '\r':
           if (token.span.end()[1] == '\n') {
             extend_span(token.span);
