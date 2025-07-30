@@ -52,6 +52,6 @@ target_link_libraries(tesl PRIVATE isptr)
 #target_compile_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
 #target_link_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
 target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0 FMT_USE_STD_STRING=0)
-target_compile_options(tesl PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc -lgcc -flto)
-target_link_options(tesl PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc -lgcc -flto)
+target_compile_options(tesl PUBLIC -fno-rtti -fno-exceptions -Werror=switch)
+target_link_options(tesl PUBLIC -fno-rtti -fno-exceptions -Werror=switch)
 # maybe -ffast-math idk
