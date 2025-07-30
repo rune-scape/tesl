@@ -56,8 +56,8 @@ namespace tesl {
     char32_t _parse_octal_char();
     char32_t _parse_hex_char(IntT len);
     Token _tokenize_string_literal();
-    bool _try_tokenize_number_literal(Token & tok);
-    bool _try_tokenize_identifier_literal(Token & tok);
+    Token _tokenize_number_literal();
+    Token _tokenize_identifier();
     Token next_token();
 
     Tokenizer(const char * p_input) : input(p_input), current(p_input), line_start(p_input) {}
