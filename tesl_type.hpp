@@ -2,9 +2,32 @@
 
 #include "tesl_common.hpp"
 #include "tesl_fmt_fwd.hpp"
+#include "tesl_ref.hpp"
 
 namespace tesl {
-  struct TypeInfo {
+  // list of builtin types to help bootstrap type system
+  namespace detail {
+    enum BuiltinType {
+      builtin_Null = 0,
+      builtin_Bool,
+      builtin_Int,
+      builtin_Float,
+      builtin_Vec2,
+      builtin_Vec3,
+      builtin_Vec4,
+      builtin_Mat2,
+      builtin_Mat3,
+      builtin_Mat4,
+      builtin_Str,
+      builtin_Fn,
+      builtin_Type,
+      builtin_Array,
+      builtin_Map,
+      builtin_max
+    };
+  }
+
+  struct TypeInfo : RefCounted<TypeInfo> {
     StrView name;
     IntT size;
     IntT align;
@@ -35,28 +58,89 @@ namespace tesl {
       deinit(ptr, nullptr);
       operator delete(ptr);
     }
+
+    TESL_ALWAYS_INLINE bool operator==(const TypeInfo & other) const { return this == &other; }
+
+    TypeInfo() = delete;
+    TypeInfo(const TypeInfo &) = delete;
+    TypeInfo(TypeInfo &&) = delete;
+    TypeInfo & operator=(const TypeInfo &) = delete;
+    TypeInfo & operator=(TypeInfo &&) = delete;
+
+    constexpr TypeInfo(
+        StrView pName,
+        IntT pSize,
+        IntT pAlign,
+        FnObjBase pInit,
+        FnObjBase pCopy,
+        FnObjBase pMove,
+        FnObjBase pDeinit)
+      : name(pName),
+        size(pSize),
+        align(pAlign),
+        init(pInit),
+        copy(pCopy),
+        move(pMove),
+        deinit(pDeinit) {}
   };
 
-  extern TypeInfo typeInfoNull;
-  extern TypeInfo typeInfoBool;
-  extern TypeInfo typeInfoInt;
-  extern TypeInfo typeInfoFloat;
-  extern TypeInfo typeInfoVec2;
-  extern TypeInfo typeInfoVec3;
-  extern TypeInfo typeInfoVec4;
-  extern TypeInfo typeInfoMat2;
-  extern TypeInfo typeInfoMat3;
-  extern TypeInfo typeInfoMat4;
-  extern TypeInfo typeInfoStr;
-  extern TypeInfo typeInfoFn;
+  namespace detail {
+    template<typename T>
+    void default_init(void * context, void * args, void * ret) {
+      new (ret) T();
+    }
 
-  template<typename T> inline const TypeInfo * type_info_of;
-  template<> inline const TypeInfo * type_info_of<Null> = &typeInfoNull;
-  template<> inline const TypeInfo * type_info_of<Bool> = &typeInfoBool;
-  template<> inline const TypeInfo * type_info_of<IntT> = &typeInfoInt;
-  template<> inline const TypeInfo * type_info_of<FloatT> = &typeInfoFloat;
+    template<typename T>
+    void default_copy(void * context, void * args, void * ret) {
+      new (ret) T(*reinterpret_cast<const T *>(args));
+    }
 
-  inline auto format_as(const tesl::TypeInfo * t) { return *t; }
+    template<typename T>
+    void default_move(void * context, void * args, void * ret) {
+      new (ret) T(MOV(*reinterpret_cast<const T *>(args)));
+    }
+
+    template<typename T>
+    void default_deinit(void * context, void * args, void * ret) {
+      reinterpret_cast<T *>(args)->~T();
+    }
+
+    template<typename T>
+    Ref<TypeInfo> new_default_type_info(StrView name) {
+      return new_ref<TypeInfo>(
+        name,
+        sizeof(T),
+        alignof(T),
+        FnObjBase{default_init<T>, nullptr},
+        FnObjBase{default_copy<T>, nullptr},
+        FnObjBase{default_move<T>, nullptr},
+        FnObjBase{default_deinit<T>, nullptr}
+      );
+    }
+  }
+
+  Ref<TypeInfo> get_builtin_type_info(detail::BuiltinType i);
+
+  inline const tesl::TypeInfo & format_as(Ref<tesl::TypeInfo> t) { return *t; }
+  inline const tesl::TypeInfo & format_as(const tesl::TypeInfo * t) { return *t; }
+
+  template<typename T>
+  Ref<TypeInfo> get_type_info_of();
+
+#define TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(type, name) \
+  template<> Ref<TypeInfo> get_type_info_of<type>();
+
+#define TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(type, name) \
+  template<> \
+  Ref<TypeInfo> get_type_info_of<type>() { \
+    static Ref<TypeInfo> ref = detail::new_default_type_info<type>(TESL_STRVIEW(#name)); \
+    return ref; \
+  }
+  
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Null, Null)
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Bool, Bool)
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(IntT, Int)
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(FloatT, Float)
 }
 
 template<typename CharT>

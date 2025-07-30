@@ -6,12 +6,11 @@
 
 namespace tesl {
   struct FnObj : public FnObjBase {
-    const TypeInfo * return_type = type_info_of<Null>;
-    Array<const TypeInfo *, 1> param_types;
+    Array<Ref<TypeInfo>, 1> return_types;
+    Array<Ref<TypeInfo>, 1> param_types;
   };
-
-
-  template<> inline const TypeInfo * type_info_of<FnObj> = &typeInfoFn;
+//lalalala i am the secret code demon ^w^ i am hiding in between your lines of code
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(FnObj, Fn)
 
   namespace detail {
     template<IntT ... I>
@@ -48,25 +47,26 @@ namespace tesl {
     template<auto Fn, typename R, typename ... Ps>
     struct function : public function0<index_sequence_helper<sizeof...(Ps)>, Fn, R, Ps...> {};
 
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeIndex return_type, ArrayView<TypeIndex> param_types) {
+    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, Ref<TypeInfo> return_type, ArrayView<Ref<TypeInfo> > param_types) {
       FnObj ret;
       ret.ptr = fn;
       ret.context = context;
-      ret.return_type = return_type;
+      ret.return_types.resize(1);
+      ret.return_types[0] = return_type;
       ret.param_types = param_types;
       return ret;
     };
 
     template<typename T, IntT N>
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeIndex return_type, const T (&param_types)[N]) {
-      return make_function_raw(fn, context, pure, return_type, {param_types, N});
+    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, Ref<TypeInfo> return_type, const T (&param_types)[N]) {
+      return make_function_raw(fn, context, pure, return_types, {param_types, N});
     }
 
     template<auto Fn, bool Pure, typename R, typename ... Ps>
     struct make_function_impl {
       static constexpr FnObj call() {
-        const TypeInfo * param_types[] = {type_info_of<Ps>...};
-        return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, type_info_of<R>, {param_types, sizeof...(Ps)});
+        Ref<TypeInfo> param_types[] = {get_type_info_of<Ps>()...};
+        return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, get_type_info_of<R>(), {param_types, sizeof...(Ps)});
       }
     };
 

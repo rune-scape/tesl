@@ -2,11 +2,12 @@
 
 #include "tesl_common.hpp"
 
+#include "tesl_ref.hpp"
 #include "tesl_type.hpp"
 
 namespace tesl {
   struct Variant {
-    const TypeInfo * _type = type_info_of<Null>;
+    Ref<TypeInfo> _type = get_type_info_of<Null>();
     char _storage[variant_storage_size] = {0};
     static_assert(variant_storage_size >= sizeof(void *), "variant storage must be big enough to store a pointer!");
 
@@ -32,11 +33,11 @@ namespace tesl {
       return *reinterpret_cast<const T *>(_get_ptr_to_data());
     }
     
-    TESL_ALWAYS_INLINE const TypeInfo * get_type() const {
+    TESL_ALWAYS_INLINE Ref<TypeInfo> get_type() const {
       return _type;
     }
 
-    TESL_ALWAYS_INLINE Variant & operator=(const Variant & other) {
+    Variant & operator=(const Variant & other) {
       // todo: maybe delay destructor
       if (_type->size == other._type->size) {
         void * data_ptr = _get_ptr_to_data();
@@ -58,7 +59,7 @@ namespace tesl {
       return *this;
     }
 
-    TESL_ALWAYS_INLINE Variant & operator=(Variant && other) {
+    Variant & operator=(Variant && other) {
       // todo: maybe delay destructor
       if (_type->size == other._type->size) {
         void * data_ptr = _get_ptr_to_data();
@@ -85,7 +86,7 @@ namespace tesl {
     TESL_ALWAYS_INLINE constexpr Variant() = default;
 
     template<typename T>
-    constexpr Variant(T v) : _type(type_info_of<T>) {
+    constexpr Variant(T v) : _type(get_type_info_of<T>()) {
       if (_type->size <= variant_storage_size) {
         _type->init(nullptr, _get_ptr_to_storage());
         _type->move((void *)&v, _get_ptr_to_storage());
@@ -100,7 +101,7 @@ namespace tesl {
       } else {
         _type->delete_(_get_storage_as_ptr());
       }
-      _type = type_info_of<Null>;
+      _type = get_type_info_of<Null>();
     }
   };
 

@@ -101,7 +101,7 @@ namespace tesl {
     return hash(static_cast<StrViewBaseT<T>>(str));
   }
 
-  template<> inline const TypeInfo * type_info_of<Str> = &typeInfoStr;
+  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Str, Str)
 }
 
 template<typename CharT>
