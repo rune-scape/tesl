@@ -22,6 +22,7 @@ add_executable(tesl
     tesl_tokenizer.hpp tesl_tokenizer.cpp
     #tesl_compiler.hpp tesl_compiler.cpp
     #tesl_parser.hpp tesl_parser.cpp
+    tesl_ref.hpp
     tesl_symbol.hpp tesl_symbol.cpp
     tesl_type.hpp tesl_type.cpp
     tesl_var.hpp tesl_var.cpp)
@@ -37,6 +38,8 @@ target_compile_definitions(rpmalloc PRIVATE ENABLE_OVERRIDE=1)
 target_include_directories(rpmalloc PUBLIC rpmalloc/rpmalloc)
 target_link_libraries(tesl PRIVATE rpmalloc)
 
+add_subdirectory(intrusive_shared_ptr)
+target_link_libraries(tesl PRIVATE isptr)
 
 #add_executable(tesl main.cpp tesl.hpp tesl.cpp printf.h printf.c)
 #target_compile_options(tesl PUBLIC -fsanitize=address -m32)
