@@ -1487,9 +1487,11 @@ template <typename F> auto getc_unlocked(F* f) -> decltype(_fgetc_nolock(f)) {
 template <typename F = FILE, typename Enable = void>
 struct has_flockfile : std::false_type {};
 
+#ifndef PICO_BUILD
 template <typename F>
 struct has_flockfile<F, void_t<decltype(flockfile(&std::declval<F&>()))>>
     : std::true_type {};
+#endif
 
 // A FILE wrapper. F is FILE defined as a template parameter to make system API
 // detection work.
