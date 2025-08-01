@@ -3,13 +3,22 @@
 #include "tesl_common.hpp"
 
 namespace tesl {
-  template<typename T>
+  template<typename T, typename = void>
   union ArrayStorageT {
     char _storage[sizeof(T)];
     T value;
 
     constexpr ArrayStorageT() {}
     constexpr ~ArrayStorageT() {}
+  };
+
+  template<typename T>
+  union ArrayStorageT<T, std::enable_if_t<std::is_trivially_default_constructible_v<T> && std::is_trivially_destructible_v<T>>> {
+    char _storage[sizeof(T)];
+    T value;
+
+    constexpr ArrayStorageT() = default;
+    constexpr ~ArrayStorageT() = default;
   };
 
   namespace detail {
@@ -68,7 +77,7 @@ namespace tesl {
     template<typename T>
     struct ArrayBaseT<T, 0> {
     protected:
-      T * _data = nullptr;
+      ArrayStorageT<T> * _data = nullptr;
       IntT _size = 0;
       IntT _capacity = 0;
       constexpr bool is_heap_allocated() { return _data != nullptr; }
