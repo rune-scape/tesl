@@ -188,3 +188,13 @@ namespace tesl {
   TESL_ALWAYS_INLINE void print(const TypeInfo * type) { print(type->name); }
   TESL_ALWAYS_INLINE void print(TypeInfo * type) { print(type->name); }*/
 }
+
+template<typename CharT>
+class fmt::formatter<tesl::Variant, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Variant & v, Context & ctx) const {
+    // todo: fix when dynamic methods are implemented, after 'stringify' method is made
+    return format_to(ctx.out(), "Variant({})", v.get_type());
+  }
+};
