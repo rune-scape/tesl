@@ -21,27 +21,16 @@
 #define TESL_DEBUG_COMPILE
 //#define TESL_DEBUG_EVAL
 
-#ifndef TESL_DEBUG_COMPILE
-#define TESL_FAIL_COND(cond, action)\
-    if (cond) {\
-        tesl_printf("error: \'" #cond "\' is true (at %s:%d in %s)\n", __FILE__, __LINE__, __func__);\
-        action;\
-    } else ((void)0)
-#define TESL_FAIL_COND_MSG(cond, action, ...)\
-    if (cond) {\
-        tesl_printf(__VA_ARGS__);\
-        action;\
-    } else ((void)0)
-#else
-#define TESL_FAIL_COND(cond, action)\
-    if (cond) {\
-        action;\
-    } else ((void)0)
-#define TESL_FAIL_COND_MSG(cond, action, ...)\
-    if (cond) {\
-        action;\
-    } else ((void)0)
-#endif
+#define TESL_FAIL_COND(cond, action) \
+  if (cond) [[unlikely]] { \
+    fmt::println(stderr, "error: '{}' is true (at {}:{} in {})\n", #cond, __FILE__, __LINE__, __func__); \
+    action; \
+  } else ((void)0)
+#define TESL_FAIL_COND_MSG(cond, action, ...) \
+  if (cond) [[unlikely]] { \
+    fmt::println(stderr, __VA_ARGS__); \
+    action; \
+  } else ((void)0)
 
 // This is used to clearly mark flexible-sized arrays that appear at the end of
 // some dynamically-allocated structs, known as the "struct hack".
