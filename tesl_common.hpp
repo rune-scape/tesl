@@ -22,22 +22,22 @@
 //#define TESL_DEBUG_EVAL
 
 #ifndef TESL_DEBUG_COMPILE
-#define TE_FAIL_COND(cond, action)\
+#define TESL_FAIL_COND(cond, action)\
     if (cond) {\
         tesl_printf("error: \'" #cond "\' is true (at %s:%d in %s)\n", __FILE__, __LINE__, __func__);\
         action;\
     } else ((void)0)
-#define TE_FAIL_COND_MSG(cond, action, ...)\
+#define TESL_FAIL_COND_MSG(cond, action, ...)\
     if (cond) {\
         tesl_printf(__VA_ARGS__);\
         action;\
     } else ((void)0)
 #else
-#define TE_FAIL_COND(cond, action)\
+#define TESL_FAIL_COND(cond, action)\
     if (cond) {\
         action;\
     } else ((void)0)
-#define TE_FAIL_COND_MSG(cond, action, ...)\
+#define TESL_FAIL_COND_MSG(cond, action, ...)\
     if (cond) {\
         action;\
     } else ((void)0)

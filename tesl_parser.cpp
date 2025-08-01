@@ -829,7 +829,7 @@ namespace tesl {
     }
 
     ParseResult rule_library_ref_t::parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, ParseResult initial) const {
-      TE_FAIL_COND(!rule.is_valid(), return parsed_sequence_t::node(new_error_expr(), rule.list.precedence));
+      TESL_FAIL_COND(!rule.is_valid(), return parsed_sequence_t::node(new_error_expr(), rule.list.precedence));
 
       auto pattern_size = rule.get_pattern().size();
       Parser::ParseSequence nodes;
@@ -924,7 +924,7 @@ do {\
       if (precedence < 0) {
         precedence += size;
       }
-      TE_FAIL_COND(precedence >= 256, return parsed_sequence_t::node(new_error_expr(), precedence));
+      TESL_FAIL_COND(precedence >= 256, return parsed_sequence_t::node(new_error_expr(), precedence));
 
       rule_ref_t rule = find_rule_precedence(s, precedence, 0);
       if (!rule.is_valid()) {
