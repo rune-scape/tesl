@@ -5,7 +5,7 @@
 // TESL_TOKEN_GROUP_END will denote the end of a group
 // TESL_TOKEN_BASIC_DEF(str, name) will give the match string and the name of a token
 // TESL_TOKEN_LITERAL_DEF(str, value) will give the match string and the value of a token literal
-// TESL_TOKEN_POSSIBLE_NUMBER will denote where a number could parse
+// TESL_TOKEN_DECIMAL_POINT will denote where a number could parse
 
 #ifndef TESL_TOKEN_GROUP
 #error "TESL_TOKEN_GROUP must be defined!"
@@ -23,8 +23,8 @@
 #error "TESL_TOKEN_LITERAL_DEF must be defined!"
 #endif
 
-#ifndef TESL_TOKEN_POSSIBLE_NUMBER
-#error "TESL_TOKEN_POSSIBLE_NUMBER must be defined!"
+#ifndef TESL_TOKEN_DECIMAL_POINT
+#error "TESL_TOKEN_DECIMAL_POINT must be defined!"
 #endif
 
 TESL_TOKEN_GROUP('!')
@@ -63,7 +63,7 @@ TESL_TOKEN_BASIC_DEF("--", MINUS_MINUS)
 TESL_TOKEN_BASIC_DEF("-", MINUS)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('.')
-TESL_TOKEN_POSSIBLE_NUMBER
+TESL_TOKEN_DECIMAL_POINT
 TESL_TOKEN_BASIC_DEF(".", DOT)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('/')
@@ -149,4 +149,4 @@ TESL_TOKEN_GROUP_END
 #undef TESL_TOKEN_GROUP_END
 #undef TESL_TOKEN_BASIC_DEF
 #undef TESL_TOKEN_LITERAL_DEF
-#undef TESL_TOKEN_POSSIBLE_NUMBER
+#undef TESL_TOKEN_DECIMAL_POINT

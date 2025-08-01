@@ -14,7 +14,7 @@ namespace tesl {
 
 #define TESL_TOKEN_BASIC_DEF(str, name) name,
 #define TESL_TOKEN_LITERAL_DEF(str, value)
-#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"
@@ -83,7 +83,7 @@ public:
 
 #define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
 #define TESL_TOKEN_LITERAL_DEF(str, value)
-#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"
@@ -114,7 +114,7 @@ public:
 
 #define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
 #define TESL_TOKEN_LITERAL_DEF(str, value)
-#define TESL_TOKEN_POSSIBLE_NUMBER
+#define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
 #include "tesl_tokens.inl"

@@ -356,7 +356,7 @@ namespace tesl {
     token.span = {token.span.begin(), sizeof(str)-1}; \
     break; \
   }
-#define TESL_TOKEN_POSSIBLE_NUMBER \
+#define TESL_TOKEN_DECIMAL_POINT \
   if (is_digit(current[1])) { \
     token = _tokenize_number_literal(); \
     break; \
