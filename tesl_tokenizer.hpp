@@ -48,7 +48,7 @@ namespace tesl {
 
   struct Tokenizer {
     const char * input = nullptr;
-    const char * current = nullptr;
+    const char * input_it = nullptr;
     const char * line_start = nullptr;
     IntT line_num = 1;
     bool has_error = false;
@@ -60,7 +60,7 @@ namespace tesl {
     Token _tokenize_identifier();
     Token next_token();
 
-    Tokenizer(const char * p_input) : input(p_input), current(p_input), line_start(p_input) {}
+    Tokenizer(const char * p_input) : input(p_input), input_it(p_input), line_start(p_input) {}
   };
 }
 

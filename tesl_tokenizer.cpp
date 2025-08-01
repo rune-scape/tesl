@@ -61,12 +61,12 @@ namespace tesl {
 
   Token Tokenizer::_tokenize_number_literal() {
 #ifdef TESL_DEBUG_TOKENIZER
-    if (!(is_digit(current[0]) || (current[0] == '.' && is_digit(current[1])))) {
+    if (!(is_digit(input_it[0]) || (input_it[0] == '.' && is_digit(input_it[1])))) {
       internal_tokenizer_error("invalid number literal starter!");
-      print_error_source(line_num, line_start, current, current, current + 1);
+      print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
       return {
         Token::NONE,
-        {current, 1}
+        {input_it, 1}
       };
     }
 #endif
@@ -75,52 +75,52 @@ namespace tesl {
 
     char * parsed_int_end = nullptr;
     // todo: maybe custom parser for better errors
-    IntT parsed_int = strtol(current, &parsed_int_end, 0);
+    IntT parsed_int = strtol(input_it, &parsed_int_end, 0);
     char * parsed_float_end = nullptr;
-    FloatT parsed_float = strtof(current, &parsed_float_end);
+    FloatT parsed_float = strtof(input_it, &parsed_float_end);
     if (parsed_float_end > parsed_int_end) {
       // strtof parsed more, use that
       return {
         Token::LITERAL,
-        {current, static_cast<CharStrView::size_type>(parsed_float_end - current)},
+        {input_it, static_cast<CharStrView::size_type>(parsed_float_end - input_it)},
         parsed_float
       };
-    } else if (parsed_int_end > current) {
+    } else if (parsed_int_end > input_it) {
       // strtol parsed something...
       return {
         Token::LITERAL,
-        {current, static_cast<CharStrView::size_type>(parsed_int_end - current)},
+        {input_it, static_cast<CharStrView::size_type>(parsed_int_end - input_it)},
         parsed_int
       };
     }
 
     internal_tokenizer_error("failed to parse number literal!");
-    print_error_source(line_num, line_start, current, current, current + 1);
+    print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
     return {
       Token::NONE,
-      {current, 1}
+      {input_it, 1}
     };
   }
 
   char32_t Tokenizer::_parse_octal_char() {
     char32_t result = 0;
     for (IntT i = 0; i < 3; ++i) {
-      char c = *current;
+      char c = *input_it;
       if (is_octal_digit(c)) {
         break;
       }
       result <<= 3;
       result |= c - '0';
-      current++;
+      input_it++;
     }
     return result;
   }
 
   char32_t Tokenizer::_parse_hex_char(IntT len) {
-    const char * start = current;
+    const char * start = input_it;
     char32_t result = 0;
     for (IntT i = 0; i < len; ++i) {
-      char c = *current;
+      char c = *input_it;
       IntT n = 0;
       switch (c) {
         case '0':
@@ -153,52 +153,52 @@ namespace tesl {
           break;
         default:
           tokenizer_error("invalid hex number!");
-          print_error_source(line_num, line_start, start, current, start + len);
+          print_error_source(line_num, line_start, start, input_it, start + len);
           return U'\0';
       }
       result <<= 4;
       result |= n;
-      current++;
+      input_it++;
     }
     return result;
   }
 
   Token Tokenizer::_tokenize_string_literal() {
 #ifdef TESL_DEBUG_TOKENIZER
-    if (current[0] != '"') {
+    if (input_it[0] != '"') {
       internal_tokenizer_error("invalid string literal starter!");
-      print_error_source(line_num, line_start, current, current, current + 1);
+      print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
       return {
         Token::NONE,
-        {current, 1}
+        {input_it, 1}
       };
     }
 #endif
 
     Token tok;
-    tok.span = {current, 0};
+    tok.span = {input_it, 0};
 
     Str result;
     result = Str();
     bool end_of_str = false;
     while (!end_of_str) {
-      current++;
-      char c = *current;
+      input_it++;
+      char c = *input_it;
       switch (c) {
         case '"':
-          current++;
+          input_it++;
           end_of_str = true;
           break;
         case '\r':
         case '\n':
         case '\0':
           tokenizer_error("unexpected end of file!");
-          print_error_source(line_num, line_start, tok.span.data(), current - 1, current);
+          print_error_source(line_num, line_start, tok.span.data(), input_it - 1, input_it);
           end_of_str = true;
           break;
         case '\\':
-          current++;
-          c = *current;
+          input_it++;
+          c = *input_it;
           switch (c) {
             case '\'': result += '\''; break;
             case '\"': result += '\"'; break;
@@ -224,21 +224,21 @@ namespace tesl {
               result += _parse_octal_char();
               break;
             case 'x':
-              current++;
+              input_it++;
               result += _parse_hex_char(2);
               break;
             case 'u':
-              current++;
+              input_it++;
               result += _parse_hex_char(4);
               break;
             case 'U':
-              current++;
+              input_it++;
               result += _parse_hex_char(8);
               break;
             default:
               tokenizer_error("unknown escape sequence!");
-              print_error_source(line_num, line_start, current, current, current + 1);
-              current++;
+              print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
+              input_it++;
               break;
           }
           break;
@@ -250,29 +250,29 @@ namespace tesl {
 
     return {
       Token::LITERAL,
-      {tok.span.begin(), static_cast<CharStrView::size_type>(current - tok.span.begin())},
+      {tok.span.begin(), static_cast<CharStrView::size_type>(input_it - tok.span.begin())},
       MOV(result)
     };
   }
 
   Token Tokenizer::_tokenize_identifier() {
 #ifdef TESL_DEBUG_TOKENIZER
-    if (!is_valid_id_starter(current[0])) {
+    if (!is_valid_id_starter(input_it[0])) {
       internal_tokenizer_error("invalid identifier starter!");
-      print_error_source(line_num, line_start, current, current, current + 1);
+      print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
       return {
         Token::NONE,
-        {current, 1}
+        {input_it, 1}
       };
     }
 #endif
     CharStrView::size_type len = 1;
-    while (is_valid_id_meat(current[len])) {
+    while (is_valid_id_meat(input_it[len])) {
       len++;
     }
     return {
       Token::IDENTIFIER,
-      CharStrView{current, len}
+      CharStrView{input_it, len}
     };
   }
 
@@ -281,14 +281,14 @@ namespace tesl {
   Token Tokenizer::next_token() {
     Token token;
 
-    bool new_line = current == input;
-    token.span = {current, 0};
+    bool new_line = input_it == input;
+    token.span = {input_it, 0};
     do {
-      current = token.span.end();
+      input_it = token.span.end();
       token = {};
-      token.span = {current, 0};
+      token.span = {input_it, 0};
 
-      switch (current[0]) {
+      switch (input_it[0]) {
         case '\0':
           // end of input
           token.kind = Token::END;
@@ -311,10 +311,10 @@ namespace tesl {
           token = _tokenize_string_literal();
           break;
         case '#': {
-          while (!skip_newline(current)) {
-            current++;
+          while (!skip_newline(input_it)) {
+            input_it++;
           }
-          CharStrView::size_type len = current - token.span.begin();
+          CharStrView::size_type len = input_it - token.span.begin();
           token.span = {token.span.begin(), len};
           new_line = true;
           line_num++;
@@ -336,13 +336,13 @@ namespace tesl {
           extend_span(token.span);
           break;
         default: {
-          tokenizer_error("unrecognised character: '{0}' (char value: {0:#04x})", current[0]);
+          tokenizer_error("unrecognised character: '{0}' (char value: {0:#04x})", input_it[0]);
           print_error_source(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
           extend_span(token.span);
         } break;
 
 #define MATCH_TOKEN(str) \
-  strncmp(&current[1], &str[1], sizeof(str)-1 - 1) == 0
+  strncmp(&input_it[1], &str[1], sizeof(str)-1 - 1) == 0
 #define TESL_TOKEN_BASIC_DEF(str, name) \
   if (MATCH_TOKEN(str)) { \
     token.kind = Token::name; \
@@ -357,7 +357,7 @@ namespace tesl {
     break; \
   }
 #define TESL_TOKEN_DECIMAL_POINT \
-  if (is_digit(current[1])) { \
+  if (is_digit(input_it[1])) { \
     token = _tokenize_number_literal(); \
     break; \
   }
@@ -375,37 +375,37 @@ namespace tesl {
       }
 
       // identifier token
-      if (is_valid_id_starter(current[0])) {
+      if (is_valid_id_starter(input_it[0])) {
         token = _tokenize_identifier();
         break;
       }
 
 #ifdef TESL_DEBUG_TOKENIZER
-      if (token.span.end() < current) {
-        internal_tokenizer_error("end of token is before current input! (char value: {:#04x})", current[0]);
-        print_error_source(line_num, line_start, current, current, current + 1);
-        token.span = {current, 1};
+      if (token.span.end() < input_it) {
+        internal_tokenizer_error("end of token is before current input! (char value: {:#04x})", input_it[0]);
+        print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
+        token.span = {input_it, 1};
       } else if (token.kind == Token::NONE && token.span.size() == 0) {
-        internal_tokenizer_error("failed to consume any input! (char value: {:#04x})", current[0]);
-        print_error_source(line_num, line_start, current, current, current + 1);
+        internal_tokenizer_error("failed to consume any input! (char value: {:#04x})", input_it[0]);
+        print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
         extend_span(token.span);
       }
 #endif
     } while (true);
 
 #ifdef TESL_DEBUG_TOKENIZER
-    if (token.span.end() < current) {
+    if (token.span.end() < input_it) {
       internal_tokenizer_error("end of token is before current input! (char value: {:#04x})", token.span[0]);
-      print_error_source(line_num, line_start, current, current, current + 1);
-      token.span = {current, 1};
+      print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
+      token.span = {input_it, 1};
     } else if (token.kind != Token::END && token.span.size() == 0) {
       internal_tokenizer_error("zero-length token! (char value: {:#04x})", token.span[0]);
-      print_error_source(line_num, line_start, current, current, current + 1);
+      print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
       extend_span(token.span);
     } else 
 #endif
 
-    current = token.span.end();
+    input_it = token.span.end();
 
     return token;
   }
