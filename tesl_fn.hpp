@@ -6,8 +6,8 @@
 
 namespace tesl {
   struct FnObj : public FnObjBase {
-    Array<Ref<TypeInfo>, 1> return_types;
-    Array<Ref<TypeInfo>, 1> param_types;
+    Array<TypeRef, 1> return_types;
+    Array<TypeRef, 1> param_types;
   };
 //lalalala i am the secret code demon ^w^ i am hiding in between your lines of code
   TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(FnObj, Fn)
@@ -47,7 +47,7 @@ namespace tesl {
     template<auto Fn, typename R, typename ... Ps>
     struct function : public function0<index_sequence_helper<sizeof...(Ps)>, Fn, R, Ps...> {};
 
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, Ref<TypeInfo> return_type, ArrayView<Ref<TypeInfo> > param_types) {
+    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, ArrayView<TypeRef> param_types) {
       FnObj ret;
       ret.ptr = fn;
       ret.context = context;
@@ -58,14 +58,14 @@ namespace tesl {
     };
 
     template<typename T, IntT N>
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, Ref<TypeInfo> return_type, const T (&param_types)[N]) {
+    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, const T (&param_types)[N]) {
       return make_function_raw(fn, context, pure, return_type, {param_types, N});
     }
 
     template<auto Fn, bool Pure, typename R, typename ... Ps>
     struct make_function_impl {
       static constexpr FnObj call() {
-        Ref<TypeInfo> param_types[] = {get_type_info_of<Ps>()...};
+        TypeRef param_types[] = {get_type_info_of<Ps>()...};
         return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, get_type_info_of<R>(), {param_types, sizeof...(Ps)});
       }
     };

@@ -7,7 +7,7 @@
 
 namespace tesl {
   struct Variant {
-    Ref<TypeInfo> _type = get_type_info_of<Null>();
+    TypeRef _type = get_type_info_of<Null>();
     char _storage[variant_storage_size] = {0};
     static_assert(variant_storage_size >= sizeof(void *), "variant storage must be big enough to store a pointer!");
 
@@ -33,7 +33,7 @@ namespace tesl {
       return *reinterpret_cast<const T *>(_get_ptr_to_data());
     }
     
-    TESL_ALWAYS_INLINE Ref<TypeInfo> get_type() const {
+    TESL_ALWAYS_INLINE TypeRef get_type() const {
       return _type;
     }
 

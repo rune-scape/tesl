@@ -8,8 +8,8 @@
 
 namespace tesl {
   template<>
-  Ref<TypeInfo> get_type_info_of<Null>() {
-    static Ref<TypeInfo> ref = new_ref<TypeInfo>(
+  TypeRef get_type_info_of<Null>() {
+    static TypeRef ref = new_ref<TypeInfo>(
       TESL_STRVIEW("Null"),
       0,
       1,
@@ -24,15 +24,15 @@ namespace tesl {
   TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(Bool, Bool)
   TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(IntT, Int)
   TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(FloatT, Float)
-  TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(Ref<TypeInfo>, Type)
+  TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(TypeRef, Type)
 
-  Ref<TypeInfo> get_builtin_type_info(detail::BuiltinType i) {
+  TypeRef get_builtin_type_info(detail::BuiltinType i) {
     switch (i) {
       case detail::builtin_Null: return get_type_info_of<Null>();
       case detail::builtin_Bool: return get_type_info_of<Bool>();
       case detail::builtin_Int: return get_type_info_of<IntT>();
       case detail::builtin_Float: return get_type_info_of<FloatT>();
-      case detail::builtin_Type: return get_type_info_of<Ref<TypeInfo> >();
+      case detail::builtin_Type: return get_type_info_of<TypeRef>();
       case detail::builtin_Vec2: return get_type_info_of<Vec2>();
       case detail::builtin_Vec3: return get_type_info_of<Vec3>();
       case detail::builtin_Vec4: return get_type_info_of<Vec4>();
