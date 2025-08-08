@@ -45,7 +45,7 @@ namespace tesl {
     FnObjBase deinit;
 
     void * allocate() const {
-      return operator new(size);
+      return operator new(size, std::align_val_t{static_cast<size_t>(align)});
     }
 
     void * new_() const {
