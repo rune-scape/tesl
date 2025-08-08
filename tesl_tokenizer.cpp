@@ -196,7 +196,8 @@ namespace tesl {
           print_error_source(line_num, line_start, tok.span.data(), input_it - 1, input_it);
           end_of_str = true;
           break;
-        case '\\':
+        case '\\': {
+          const char * escape_seq_begin = input_it;
           input_it++;
           c = *input_it;
           switch (c) {
@@ -237,11 +238,11 @@ namespace tesl {
               break;
             default:
               tokenizer_error("unknown escape sequence!");
-              print_error_source(line_num, line_start, input_it, input_it, input_it + 1);
+              print_error_source(line_num, line_start, escape_seq_begin, input_it, input_it + 1);
               input_it++;
               break;
           }
-          break;
+        } break;
         default:
           result += c;
           break;
