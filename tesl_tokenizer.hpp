@@ -81,7 +81,7 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "literal {}", token.literal.get_type());
 
-#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "'{}'", token.kind);
+#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "{:?}", token.kind);
 #define TESL_TOKEN_LITERAL_DEF(str, value)
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
@@ -90,15 +90,31 @@ public:
 
     }
 
-    return format_to(ctx.out(), "{}", token.kind);
+    return format_to(ctx.out(), "{:?}", token.kind);
   }
 };
 
 template<typename CharT>
 class fmt::formatter<tesl::Token::Kind, CharT> {
+  bool is_quoted = false;
 public:
   template<typename Context>
-  constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  constexpr auto parse(Context & ctx) {
+    if (ctx.begin() != ctx.end() && (*ctx.begin() == '?')) {
+      is_quoted = true;
+      return ctx.begin() + 1;
+    }
+    return ctx.begin();
+  }
+  template<typename Context>
+  constexpr auto format_quoted_impl(const char * str, Context & ctx) const {
+    if (is_quoted) {
+      return format_to(ctx.out(), "'{}'", str);
+    } else {
+      return format_to(ctx.out(), "{}", str);
+    }
+  }
+
   template<typename Context>
   constexpr auto format(const tesl::Token::Kind & kind, Context & ctx) const {
     using namespace tesl;
@@ -113,7 +129,8 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "{}", "<literal>");
 
-#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "{}", str);
+#define TESL_TOKEN_BASIC_DEF(str, name) \
+  case Token::name: return format_quoted_impl(str, ctx);
 #define TESL_TOKEN_LITERAL_DEF(str, value)
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
