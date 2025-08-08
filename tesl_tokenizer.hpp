@@ -12,8 +12,9 @@ namespace tesl {
       IDENTIFIER,
       LITERAL,
 
-#define TESL_TOKEN_BASIC_DEF(str, name) name,
-#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_SYMBOL_DEF(str, name) name,
+#define TESL_TOKEN_KEYWORD_DEF(str, name) name,
+#define TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value)
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
@@ -81,8 +82,11 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "literal {}", token.literal.get_type());
 
-#define TESL_TOKEN_BASIC_DEF(str, name) case Token::name: return format_to(ctx.out(), "{:?}", token.kind);
-#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_SYMBOL_DEF(str, name) \
+  case Token::name: return format_to(ctx.out(), "{:?}", token.kind);
+#define TESL_TOKEN_KEYWORD_DEF(str, name) \
+  case Token::name: return format_to(ctx.out(), "{:?}", token.kind);
+#define TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value)
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
@@ -129,9 +133,11 @@ public:
       case Token::LITERAL:
         return format_to(ctx.out(), "{}", "<literal>");
 
-#define TESL_TOKEN_BASIC_DEF(str, name) \
+#define TESL_TOKEN_SYMBOL_DEF(str, name) \
   case Token::name: return format_quoted_impl(str, ctx);
-#define TESL_TOKEN_LITERAL_DEF(str, value)
+#define TESL_TOKEN_KEYWORD_DEF(str, name) \
+  case Token::name: return format_quoted_impl(str, ctx);
+#define TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value)
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END

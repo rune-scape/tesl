@@ -4,31 +4,31 @@
 #include "tesl_fmt.hpp"
 
 namespace tesl {
-  bool is_digit(char c) {
+  constexpr bool is_digit(char c) {
 	  return static_cast<UIntT>(c - '0') < 10;
   }
 
-  bool is_octal_digit(char c) {
+  constexpr bool is_octal_digit(char c) {
 	  return static_cast<UIntT>(c - '0') < 8;
   }
 
-  bool is_hex_digit(char c) {
+  constexpr bool is_hex_digit(char c) {
 	  return is_digit(c) || static_cast<UIntT>((c | 32) - 'a') < 6;
   }
 
-  bool is_alpha(char c) {
+  constexpr bool is_alpha(char c) {
 	  return static_cast<UIntT>((c | 32) - 'a') < 26;
   }
 
-  bool is_valid_id_starter(char c) {
+  constexpr bool is_valid_id_starter(char c) {
     return is_alpha(c) || c == '_';
   }
 
-  bool is_valid_id_meat(char c) {
+  constexpr bool is_valid_id_meat(char c) {
     return is_digit(c) || is_alpha(c) || c == '_';
   }
 
-  bool skip_newline(const char * & c) {
+  static bool skip_newline(const char * & c) {
     if (c[0] == '\n') {
       c++;
       return true;
@@ -277,7 +277,17 @@ namespace tesl {
     };
   }
 
-#define extend_span(sv) ((sv) = CharStrView{(sv).begin(), (sv).size() + 1})
+  static void extend_span(CharStrView & sv) {
+    sv = CharStrView{sv.begin(), sv.length() + 1};
+  }
+
+  static bool match_symbol(const char * input, const char * match_str, size_t len) {
+    return strncmp(input, match_str, len) == 0;
+  }
+
+  static bool match_keyword(const char * input, const char * match_str, size_t len) {
+    return strncmp(input, match_str, len) == 0 && !is_valid_id_meat(input[len]);
+  }
 
   Token Tokenizer::next_token() {
     Token token;
@@ -342,16 +352,20 @@ namespace tesl {
           extend_span(token.span);
         } break;
 
-#define MATCH_TOKEN(str) \
-  strncmp(&input_it[1], &str[1], sizeof(str)-1 - 1) == 0
-#define TESL_TOKEN_BASIC_DEF(str, name) \
-  if (MATCH_TOKEN(str)) { \
+#define TESL_TOKEN_SYMBOL_DEF(str, name) \
+  if (match_symbol(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
     token.kind = Token::name; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
     break; \
   }
-#define TESL_TOKEN_LITERAL_DEF(str, value) \
-  if (MATCH_TOKEN(str)) { \
+#define TESL_TOKEN_KEYWORD_DEF(str, name) \
+  if (match_keyword(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
+    token.kind = Token::name; \
+    token.span = {token.span.begin(), sizeof(str)-1}; \
+    break; \
+  }
+#define TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value) \
+  if (match_keyword(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
     token.kind = Token::LITERAL; \
     token.literal = value; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
@@ -367,7 +381,6 @@ namespace tesl {
 #define TESL_TOKEN_GROUP_END \
   } break;
 #include "tesl_tokens.inl"
-#undef MATCH_TOKEN
 
       }
 
