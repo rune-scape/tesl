@@ -7,15 +7,25 @@
 
 namespace tesl {
   struct Variant {
-    TypeRef _type = get_type_info_of<Null>();
     char _storage[variant_storage_size] = {0};
     static_assert(variant_storage_size >= sizeof(void *), "variant storage must be big enough to store a pointer!");
 
-    TESL_ALWAYS_INLINE constexpr void * _get_ptr_to_storage() const { return (void *)_storage; }
-    TESL_ALWAYS_INLINE void *& _get_storage_as_ptr() { return *((void **)_storage); }
-    TESL_ALWAYS_INLINE void * _get_storage_as_ptr() const { return *((void **)_storage); }
+    TypeRef _type = get_type_info_of<Null>();
 
-    TESL_ALWAYS_INLINE void * _get_ptr_to_data() const {
+    TESL_ALWAYS_INLINE void * _get_ptr_to_storage() { return reinterpret_cast<void *>(&_storage); }
+    TESL_ALWAYS_INLINE const void * _get_ptr_to_storage() const { return reinterpret_cast<const void *>(&_storage); }
+    TESL_ALWAYS_INLINE void *& _get_storage_as_ptr() { return *(reinterpret_cast<void **>(&_storage)); }
+    TESL_ALWAYS_INLINE const void * _get_storage_as_ptr() const { return *(reinterpret_cast<const void * const *>(&_storage)); }
+
+    TESL_ALWAYS_INLINE void * _get_ptr_to_data() {
+      if (_type->size <= variant_storage_size) {
+        return _get_ptr_to_storage();
+      } else {
+        return _get_storage_as_ptr();
+      }
+    }
+
+    TESL_ALWAYS_INLINE const void * _get_ptr_to_data() const {
       if (_type->size <= variant_storage_size) {
         return _get_ptr_to_storage();
       } else {
@@ -52,9 +62,9 @@ namespace tesl {
       }
 
       if (_type->size <= variant_storage_size) {
-        _type->copy(other._get_ptr_to_storage(), _get_ptr_to_storage());
+        _type->copy(const_cast<void *>(other._get_ptr_to_storage()), _get_ptr_to_storage());
       } else {
-        _type->copy(other._get_storage_as_ptr(), _get_storage_as_ptr());
+        _type->copy(const_cast<void *>(other._get_storage_as_ptr()), _get_storage_as_ptr());
       }
       return *this;
     }
@@ -83,10 +93,10 @@ namespace tesl {
 
     TESL_ALWAYS_INLINE Variant(const Variant & other) { this->operator=(other); }
     TESL_ALWAYS_INLINE Variant(Variant && other) { this->operator=(MOV(other)); }
-    TESL_ALWAYS_INLINE constexpr Variant() = default;
+    TESL_ALWAYS_INLINE Variant() = default;
 
     template<typename T>
-    constexpr Variant(T v) : _type(get_type_info_of<T>()) {
+    Variant(T v) : _type(get_type_info_of<T>()) {
       if (_type->size <= variant_storage_size) {
         _type->init(nullptr, _get_ptr_to_storage());
         _type->move((void *)&v, _get_ptr_to_storage());
