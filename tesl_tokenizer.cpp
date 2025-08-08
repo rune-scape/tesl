@@ -410,4 +410,11 @@ namespace tesl {
     return token;
   }
 
+
+  void Tokenizer::reset() {
+    input_it = input;
+    line_start = input;
+    line_num = 1;
+    has_error = false;
+  }
 } // namespace tesl

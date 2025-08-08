@@ -41,7 +41,6 @@ namespace tesl {
     Token(Token &&) = default;
     ~Token() = default;
   };
-  static constexpr IntT TokenSize = sizeof(Token);
 
   inline bool operator==(Token::Kind k, const Token & tok) { return k == tok.kind; }
   inline bool operator!=(Token::Kind k, const Token & tok) { return k != tok.kind; }
@@ -59,6 +58,7 @@ namespace tesl {
     Token _tokenize_number_literal();
     Token _tokenize_identifier();
     Token next_token();
+    void reset();
 
     Tokenizer(const char * p_input) : input(p_input), input_it(p_input), line_start(p_input) {}
   };
@@ -102,6 +102,7 @@ public:
   template<typename Context>
   constexpr auto format(const tesl::Token::Kind & kind, Context & ctx) const {
     using namespace tesl;
+
     switch (kind) {
       case Token::NONE:
         return format_to(ctx.out(), "{}", "<none>");
