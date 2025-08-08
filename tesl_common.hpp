@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cassert>
 #include <climits>
 #include <cmath>
 #include <cstddef>
@@ -21,24 +20,38 @@
 #define TESL_DEBUG_COMPILE
 //#define TESL_DEBUG_EVAL
 
-#define TESL_FAIL_COND(cond, action) \
+#define TESL_FAIL_COND_BASE(prefix, cond, action, ...) \
   if (cond) [[unlikely]] { \
-    fmt::println(stderr, "error: '{}' is true (at {}:{} in {})\n", #cond, __FILE__, __LINE__, __func__); \
+    fprintf(stderr, prefix ": "); \
+    fprintf(stderr, __VA_ARGS__); \
     action; \
-  } else ((void)0)
+  } else do {} while (false)
+
 #define TESL_FAIL_COND_MSG(cond, action, ...) \
-  if (cond) [[unlikely]] { \
-    fmt::println(stderr, __VA_ARGS__); \
-    action; \
-  } else ((void)0)
+  TESL_FAIL_COND_BASE("error", cond, action, __VA_ARGS__)
+
+#define TESL_FAIL_COND(cond, action) \
+  TESL_FAIL_COND_MSG(cond, action, "'%s' is true (at %s:%d in %s)", #cond, __FILE__, __LINE__, __func__)
+
+#ifndef NDEBUG
+#define TESL_ASSERT(cond) \
+  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), "'%s' (at %s:%d in %s)", #cond, __FILE__, __LINE__, __func__)
+#else
+#define TESL_ASSERT(cond) do {} while (false)
+#endif
+
+#ifndef NDEBUG
+#define TESL_UNREACHABLE \
+  TESL_FAIL_COND_BASE("unreachable code", true, abort(), "at %s:%d in %s", __FILE__, __LINE__, __func__)
+#else
+#define TESL_UNREACHABLE __builtin_unreachable()
+#endif
 
 // This is used to clearly mark flexible-sized arrays that appear at the end of
 // some dynamically-allocated structs, known as the "struct hack".
 #define FLEXIBLE_ARRAY 0
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
-
-#define TESL_UNREACHABLE abort()
 
 namespace tesl {
   struct Null {};

@@ -98,14 +98,14 @@ namespace tesl {
     //static_assert(std::is_trivially_move_constructible_v<T> || std::is_trivially_move_assignable_v<T>);
 
     TESL_ALWAYS_INLINE constexpr T & operator[](IntT i) {
-      assert(base::_data != nullptr);
-      assert(i >= 0 && i < base::_size);
+      TESL_ASSERT(base::_data != nullptr);
+      TESL_ASSERT(i >= 0 && i < base::_size);
       return base::_data[i].value;
     }
 
     TESL_ALWAYS_INLINE constexpr const T & operator[](IntT i) const {
-      assert(base::_data != nullptr);
-      assert(i >= 0 && i < base::_size);
+      TESL_ASSERT(base::_data != nullptr);
+      TESL_ASSERT(i >= 0 && i < base::_size);
       return base::_data[i].value;
     }
 
@@ -168,12 +168,12 @@ namespace tesl {
 
     template<typename VT>
     constexpr T & insert(IntT at, VT && v) {
-      assert(base::_data != nullptr);
-      assert(at >= 0 && at <= base::_size);
+      TESL_ASSERT(base::_data != nullptr);
+      TESL_ASSERT(at >= 0 && at <= base::_size);
 
       reserve(base::_size + 1, true);
 
-      assert(base::_capacity > base::_size);
+      TESL_ASSERT(base::_capacity > base::_size);
 
       IntT old_size = base::_size++;
       for (IntT i = old_size; i > at; --i) {
@@ -184,8 +184,8 @@ namespace tesl {
     }
 
     constexpr void remove_at(IntT at) {
-      assert(base::_data != nullptr);
-      assert(at >= 0 && at < base::_size);
+      TESL_ASSERT(base::_data != nullptr);
+      TESL_ASSERT(at >= 0 && at < base::_size);
 
       if constexpr (!std::is_trivially_destructible_v<T>) {
         base::_data[at].~T();

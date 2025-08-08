@@ -3,7 +3,7 @@
 
 namespace tesl {
   void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * start, const char * point, const char * const end) {
-    assert(start <= point && point <= end);
+    TESL_ASSERT(start <= point && point <= end);
     const char * line_end = line_start;
     do {
       while (*line_end != '\0' && *line_end != '\r' && *line_end != '\n') line_end++;

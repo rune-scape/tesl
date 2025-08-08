@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include "tesl_common.hpp"
+
 #include <cassert>
 #include <cstdlib>
 #include <cstdint>
@@ -554,8 +556,8 @@ public:
         if (sumb == 0)  return;
         printf("    _num_filled/bucket_size/packed collision/cache_miss/hit_find = %u/%.2lf/%zd/ %.2lf%%/%.2lf%%/%.2lf\n",
                 _num_filled, _num_filled * 1.0 / sumb, sizeof(value_type), (collision * 100.0 / _num_filled), (collision - steps[0]) * 100.0 / _num_filled, finds * 1.0 / _num_filled);
-        assert(sumn == _num_filled);
-        assert(sumc == collision);
+        TESL_ASSERT(sumn == _num_filled);
+        TESL_ASSERT(sumc == collision);
         puts("============== buckets size end =============");
     }
 #endif
@@ -1073,7 +1075,7 @@ public:
     void push_empty(const int32_t bucket)
     {
         const int next_bucket = 0-_index[_ehead].next;
-        assert(next_bucket > 0);
+        TESL_ASSERT(next_bucket > 0);
 
         EMH_PREVET(_index, bucket) = _ehead;
         _index[bucket].next = -next_bucket;
@@ -1114,7 +1116,7 @@ public:
         if (_num_filled > EMH_STATIS) dump_statics();
 #endif
 
-        //assert(required_buckets < max_size());
+        //TESL_ASSERT(required_buckets < max_size());
         rehash(required_buckets + 2);
         return true;
     }
@@ -1196,7 +1198,7 @@ public:
         if (required_buckets < _num_filled)
             return;
 
-        assert(required_buckets < (uint64_t)max_size());
+        TESL_ASSERT(required_buckets < (uint64_t)max_size());
         auto num_buckets = _num_filled > (1u << 16) ? (1u << 16) : 4u;
         while (num_buckets < required_buckets) { num_buckets *= 2; }
 #if EMH_SAVE_MEM
