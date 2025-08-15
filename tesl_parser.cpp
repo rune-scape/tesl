@@ -1,68 +1,11 @@
 #include "tesl_parser.hpp"
 
-namespace tesl {
+#include "tesl_str.hpp"
+#include <fmt/format.h>
 
-#ifdef TESL_DEBUG_PARSER
-
-#define PARSE_DEBUG(s, sequence)\
-  do {\
-    tesl_printf("%s:\n", __func__);\
-    for (int i = 0; i < sequence.size(); ++i) {\
-      switch (sequence[i].kind) {\
-        case Parser::ParseResult::NONE:\
-          tesl_printf("  <none>");\
-          break;\
-        case Parser::ParseResult::TOKEN:\
-          tesl_printf("  token: ");\
-          print(sequence[i].token);\
-          tesl_printf("\n");\
-          break;\
-        case Parser::ParseResult::VALUE:\
-          tesl_printf("  value: ");\
-          print(sequence[i].value);\
-          tesl_printf("\n");\
-          break;\
-        case Parser::ParseResult::EXPR:\
-          tesl_printf("  expr: ");\
-          print(sequence[i].expr.type);\
-          tesl_printf("\n");\
-          break;\
-      }\
-    }\
-  } while (false)
-
-#else
-
-#define PARSE_DEBUG(s, sequence)
-
-#endif
-
-  /*struct ParseResult {
-    enum kind_t : int8_t {
-      TOKEN,
-      EXPR,
-      OP,
-    } kind;
-
-    union {
-      Token token{};
-      struct {
-        union {
-          te_op * op;
-          te_expr * expr;
-        };
-        uint8_t precedence;
-      };
-    };
-
-    node(const Token & t) : kind(TOKEN), token(t) {}
-    node(te_expr * e, uint8_t p) : kind(EXPR), expr(e), precedence(p) {}
-    node(te_op * o, uint8_t p) : kind(te_is_expr(o) ? EXPR : OP), op(o), precedence(p) {}
-    node() = default;
-  };*/
-
+namespace tesl::rules {
   struct ExprResult {
-    const TypeInfo * type = &typeInfoNull;
+    TypeRef type = get_type_info_of<Null>();
   };
   /*struct ExprResult {
     const TypeInfo * type;
@@ -85,33 +28,96 @@ namespace tesl {
     ExprResult(ExprResult && other) { this->operator=(MOV(other)); }
 
     ~ExprResult() {
-      assert(is_empty());
+      TESL_ASSERT(is_empty());
     }
   };*/
+
+  using ParseSequence = Parser::ParseSequence;
+  using ParseResult = Parser::ParseResult;
+  using ParseFn = Parser::ParseFn;
+
+  struct PatternElement;
+  struct PatternRefStorage;
+  struct RuleRefStorage;
+  struct RuleRefListStorage;
+
+  struct ElementRef;
+  struct PatternRef;
+  struct RuleRef;
+  struct RuleRefList;
+}
+
+namespace tesl {
+  using ExprResult = rules::ExprResult;
 
   struct Parser::ParseResult {
     enum Kind {
       NONE,
       TOKEN,
       VALUE,
+      IDENTIFIER,
       EXPR,
     };
 
     Kind kind = NONE;
 
     union {
+      Token::Kind token = Token::NONE;
       Variant value;
-      Token::Kind token;
-      ExprResult expr;
+      CharStrView identifier;
+      rules::ExprResult expr;
     };
 
-    ParseResult(Token::Kind k) : kind(TOKEN), token(k) {}
-    ParseResult(Variant v) : kind(VALUE), value(v) {}
-    ParseResult(ExprResult e) : kind(EXPR), expr(e) {}
+    ParseResult & operator=(const ParseResult & other) {
+      this->~ParseResult();
+      new(this) ParseResult(other);
+      return *this;
+    }
+  
+    ParseResult & operator=(ParseResult && other) {
+      memswap(*this, other);
+      return *this;
+    }
 
-    ParseResult() = default;
-    ParseResult(ParseResult &&) = default;
-    ParseResult(const ParseResult &) = default;
+    ParseResult(const ParseResult & other) : kind(other.kind) {
+      switch (other.kind) {
+        case NONE:
+          break;
+        case TOKEN:
+          token = other.token;
+          break;
+        case VALUE:
+          new(&value) Variant(other.value);
+          break;
+        case IDENTIFIER:
+          new(&identifier) CharStrView(other.identifier);
+          break;
+        case EXPR:
+          new(&expr) ExprResult(other.expr);
+          break;
+      }
+    }
+
+    ParseResult(ParseResult && other) {
+      memswap(*this, other);
+    }
+
+    explicit ParseResult(const Token & t) {
+      if (t.kind == Token::LITERAL) {
+        kind = VALUE;
+        new(&value) Variant(t.literal);
+      } else if (t.kind == Token::IDENTIFIER) {
+        kind = IDENTIFIER;
+        new(&identifier) CharStrView(t.span);
+      } else {
+        kind = TOKEN;
+        token = t.kind;
+      }
+    }
+    explicit ParseResult(Token::Kind k) : kind(TOKEN), token(k) {}
+    ParseResult(rules::ExprResult e) : kind(EXPR), expr(e) {}
+
+    ParseResult() {}
     ~ParseResult() {
       switch (kind) {
         case NONE:
@@ -119,6 +125,9 @@ namespace tesl {
           break;
         case VALUE:
           value.~Variant();
+          break;
+        case IDENTIFIER:
+          identifier.~CharStrView();
           break;
         case EXPR:
           expr.~ExprResult();
@@ -129,134 +138,115 @@ namespace tesl {
 
   struct Parser::ParseSequence : public Array<Parser::ParseResult, 3> {};
 
+#define parser_error(...) \
+  do { \
+    has_error = true; \
+    fmt::print(stderr, "parser error: "); \
+    fmt::println(stderr, __VA_ARGS__); \
+    print_error_source(); \
+  } while (false)
+
+#define internal_parser_error(...) \
+  do { \
+    has_error = true; \
+    fmt::print(stderr, "internal parser error: "); \
+    fmt::println(stderr, __VA_ARGS__); \
+    print_error_source(); \
+  } while (false)
+
   Parser::ParseResult Parser::parse_literal_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
-
-    assert(sequence.size() == 1);
-    assert(sequence[0].kind == ParseResult::TOKEN);
-    assert(sequence[0].token.kind == Token::LITERAL);
-
-    ErrorRecord er(s);
-
-    switch (sequence[0].token.type) {
-      case TYPE_INT_VAL:
-        return new_int_literal_expr(s.curr_token.int_value);
-        break;
-      case TYPE_FLOAT_VAL:
-        return new_float_literal_expr(s.curr_token.float_value);
-        break;
-      case TYPE_STR_VAL:
-        return new_str_literal_expr(s.curr_token.name);
-        break;
-      default:
-        te_compile_error(s, "internal error: unknown literal type: ", s.curr_token.type);
-        break;
-    }
-
-    // TODO: finish
-    return nullptr;
+    TESL_ASSERT(sequence.size() == 1);
+    TESL_ASSERT(sequence[0].kind == ParseResult::VALUE);
+    return {sequence[0]};
   }
 
   Parser::ParseResult Parser::parse_identifier_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return ExprResult();
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_grouping_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_subscript_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_call_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_construct_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_dot_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_postfix_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_prefix_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_arithmetic_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_comparison_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_bitwise_op_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_boolean_op_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_ternary_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_assignment_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
     // TODO: finish
-    return nullptr;
+    return {ExprResult()};
   }
 
   Parser::ParseResult Parser::parse_sequence_expr(ParseSequence sequence) {
-    PARSE_DEBUG(s, sequence);
+    TESL_ASSERT(sequence.size() >= 3);
+    TESL_ASSERT(sequence.size() % 2 == 1);
 
-    assert(sequence.size() >= 3);
-    assert(sequence.size() % 2 == 1);
+    // TODO: finish
+    return {ExprResult()};
 
-    int sequence_size = (sequence.size() + 1) / 2;
+    /*IntT sequence_size = (sequence.size() + 1) / 2;
 
     uint16_t offset = 0;
     uint16_t size = 0;
     te_expr * args[sequence_size];
     Type param_types[sequence_size];
-    for (int i = 0; i < sequence.size(); ++i) {
+    for (IntT i = 0; i < sequence.size(); ++i) {
       if (i % 2 == 0) {
-        assert(sequence[i].kind == ParseResult::EXPR);
-        assert(sequence[i].expr != nullptr);
+        TESL_ASSERT(sequence[i].kind == ParseResult::EXPR);
+        TESL_ASSERT(sequence[i].expr != nullptr);
         args[i / 2] = sequence[i].expr;
         param_types[i] = args[i]->type;
         if (i != (sequence.size() - 1)) {
@@ -265,8 +255,8 @@ namespace tesl {
           size = sizeof_type(param_types[i]);
         }
       } else {
-        assert(sequence[i].kind == ParseResult::TOKEN);
-        assert(sequence[i].token.kind == Token::COMMA);
+        TESL_ASSERT(sequence[i].kind == ParseResult::TOKEN);
+        TESL_ASSERT(sequence[i].token.kind == Token::COMMA);
       }
     }
 
@@ -275,16 +265,14 @@ namespace tesl {
     uint16_t * ctx_data = reinterpret_cast<uint16_t *>(&ctx);
     ctx_data[0] = offset;
     ctx_data[0] = size;
-    return new_call_expr_v(te::detail::make_function_raw(te::sequence, ctx, true, TYPE_NULL_VAL, param_types, sequence_size), args, sequence_size);
+    return new_call_expr_v(te::detail::make_function_raw(te::sequence, ctx, true, TYPE_NULL_VAL, param_types, sequence_size), args, sequence_size);*/
   }
-
-#undef PARSE_DEBUG
+  
+  #undef TESL_PARSER_DEBUG  
 
   namespace rules {
-    using parse_fn = Parser::ParseResult * (Parser::*)(Parser::ParseSequence sequence);
-
-    struct element_t {
-      enum kind_t : int8_t {
+    struct PatternElement {
+      enum Kind : char {
         TOKEN,
         ABSOLUTE_PRECEDENCE_RULE,
         RELATIVE_PRECEDENCE_RULE,
@@ -293,324 +281,524 @@ namespace tesl {
       } kind = TOKEN;
       union {
         Token::Kind token = Token::NONE;
-        int8_t n;
-        int8_t offset;
-        int8_t size;
+        std::int8_t offset;
       };
 
-      constexpr element_t(const element_t &) = default;
-
-      constexpr element_t(Token::Kind t) : kind(TOKEN), token(t) {};
-      constexpr element_t(kind_t k, Token::Kind t) : kind(k), token(t) {};
-      constexpr element_t(kind_t k, int8_t v) : kind(k), n(v) {};
-
-      constexpr element_t() {};
+      constexpr PatternElement(const PatternElement &) = default;
+      constexpr PatternElement(Token::Kind t) : kind(TOKEN), token(t) {}
+      //constexpr PatternElement(Kind k, Token::Kind t) : kind(k), token(t) {}
+      constexpr PatternElement(Kind k, std::int8_t v) : kind(k), offset(v) {}
+      constexpr PatternElement() = default;
     };
 
-    struct pattern_ref_storage_t {
-      const element_t * elements = nullptr;
-      int16_t size = 0;
-      bool is_valid() const { return size == 0 || (size > 0 && elements != nullptr); }
-      bool operator==(const pattern_ref_storage_t &other) const { return elements == other.elements && size == other.size; }
-    };
-
-    struct rule_ref_storage_t {
-      parse_fn parse = nullptr;
-      pattern_ref_storage_t pattern;
-      bool is_valid() const { return parse != nullptr && pattern.is_valid(); }
-      bool operator==(const rule_ref_storage_t &other) const { return parse == other.parse && pattern == other.pattern; }
-    };
-
-    struct rule_ref_list_storage_t {
-      const rule_ref_storage_t * rules = nullptr;
-      int16_t size = 0;
-      bool is_valid() const { return rules != nullptr || size == 0; }
-      bool operator==(const rule_ref_list_storage_t &other) const { return rules == other.rules && size == other.size; }
-    };
-
-    struct rule_library_info_t {
-      const char * rule_label;
-      int size = 0;
-      int max_precedence = 0;
-    };
-    
-    struct rule_ref_list_t;
-    struct rule_ref_t;
-    struct pattern_ref_t;
-    struct element_ref_t;
-
-    struct rule_ref_list_t {
-      rule_ref_list_storage_t storage;
-      const rule_library_info_t * library_info = nullptr;
-      uint8_t precedence = -1;
-
-      bool is_valid() const { return storage.is_valid() && library_info != nullptr; }
-      int16_t size() const { return storage.size; }
-
-      bool operator==(const rule_ref_list_t &other) const { return library_info == other.library_info && storage == other.storage && precedence == other.precedence; }
-      rule_ref_t operator[](int i) const;
-
-      constexpr rule_ref_list_t(const rule_ref_list_storage_t &rl, const rule_library_info_t & info, uint8_t p) : storage(rl), library_info(&info), precedence(p) {}
-      constexpr rule_ref_list_t() = default;
-    };
-
-    struct rule_ref_t {
-      rule_ref_storage_t storage;
-      rule_ref_list_t list;
-
-      bool is_valid() const { return storage.is_valid() && list.is_valid(); }
-      pattern_ref_t get_pattern() const;
-      Parser::ParseResult parse(Parser & p, Parser::ParseSequence seq) const {
-        parse_fn parse = storage.parse;
-        return p.*parse(seq);
-      }
-
-      bool operator==(const rule_ref_t & other) const { return list == other.list && storage == other.storage; }
-
-      constexpr rule_ref_t(const rule_ref_list_t & l, const rule_ref_storage_t & r) : storage(r), list(l) {}
-      constexpr rule_ref_t() = default;
-    };
-
-    struct pattern_ref_t {
-      pattern_ref_storage_t storage;
-      rule_ref_t rule;
-
-      bool is_valid() const { return storage.is_valid() && rule.is_valid(); }
-      int16_t size() const { return storage.size; }
-
-      bool operator==(const pattern_ref_t & other) const { return rule == other.rule && storage == other.storage; }
-      element_ref_t operator[](int i) const;
-
-      constexpr pattern_ref_t(const rule_ref_t & r, const pattern_ref_storage_t & p) : storage(p), rule(r) {}
-      constexpr pattern_ref_t() = default;
-    };
-
-    struct element_ref_t {
-      pattern_ref_t pattern;
-      int element_index = 0;
-
-      bool is_valid() const { return element_index > 0 && element_index < pattern.size() && pattern.is_valid(); }
-      element_ref_t follow() const;
-
-      void _get_branch_choices_impl(Array<element_ref_t, 0> & choices) const;
-      Array<element_ref_t, 0> get_branch_choices() const {
-        static thread_local Array<element_ref_t, 0> choices;
-        choices.clear();
-        _get_branch_choices_impl(choices);
-        return choices;
-      }
-
-      element_ref_t choose_branch(Token::Kind tok) const;
-      void print_branch_choices() const;
-
-      bool operator==(const element_ref_t & other) const { return pattern == other.pattern && element_index == other.element_index; }
-      const element_t * operator->() const { return &pattern.storage.elements[element_index]; }
-      operator const element_t &() const { return pattern.storage.elements[element_index]; }
-    };
-
-    void print(const element_ref_t & e) {
-      if (!e.is_valid()) {
-        tesl_printf("<invalid-element>");
-        return;
-      }
-
-      const rule_ref_list_t & rule_list = e.pattern.rule.list;
-      const rule_library_info_t & library_info = *rule_list.library_info;
-      switch (e->kind) {
-        case element_t::TOKEN:
-          tesl_printf("'");
-          print(e->token);
-          tesl_printf("'");
-          break;
-        case element_t::ABSOLUTE_PRECEDENCE_RULE: {
-          tesl_printf("%s", library_info.rule_label);
-#ifdef TESL_DEBUG_PARSER
-          tesl_printf("[p%d]", e->offset);
-#endif
-        } break;
-        case element_t::RELATIVE_PRECEDENCE_RULE:
-          tesl_printf("%s", library_info.rule_label);
-#ifdef TESL_DEBUG_PARSER
-          tesl_printf("[p%d]", library_info.size - (rule_list.precedence + e->offset));
-#endif
-          break;
-        case element_t::OPTIONAL:
-          tesl_printf("<opt:size=%d>", e->size);
-          break;
-        case element_t::JUMP:
-          tesl_printf("<jmp%+d>", e->offset);
-          break;
-      }
+    template<IntT precedence>
+    constexpr PatternElement make_absolute_precedence_element() {
+      using limits = std::numeric_limits<decltype(PatternElement::offset)>;
+      static_assert(precedence <= limits::max() && precedence >= limits::min());
+      return {PatternElement::ABSOLUTE_PRECEDENCE_RULE, static_cast<std::int8_t>(precedence)};
     }
 
-    rule_ref_t rule_ref_list_t::operator[](int i) const { return {*this, storage.rules[i]}; }
-    pattern_ref_t rule_ref_t::get_pattern() const { return {*this, storage.pattern}; }
-    element_ref_t pattern_ref_t::operator[](int i) const  { return {*this, i}; }
+    struct PatternRefStorage {
+      const PatternElement * elements = nullptr;
+      IntT size = 0;
 
-    element_ref_t element_ref_t::follow() const {
-      int loop_count = 0;
-      int i = element_index;
-      const element_t * e = &pattern.storage.elements[i];
-      while (e && e->kind == element_t::JUMP) {
-        assert(loop_count < 100);
-        assert(e->offset != 0);
+      bool is_valid() const {
+        return size == 0 || (size > 0 && elements != nullptr);
+      }
+    };
+
+    struct RuleRefStorage {
+      CharStrView name;
+      ParseFn parse = nullptr;
+      PatternRefStorage pattern;
+
+      bool is_valid() const {
+        return parse != nullptr && pattern.is_valid();
+      }
+    };
+
+    struct RuleRefListStorage {
+      const RuleRefStorage * rules = nullptr;
+      IntT size = 0;
+
+      bool is_valid() const {
+        return size == 0 || (size > 0 && rules != nullptr);
+      }
+    };
+
+    struct RuleRefList {
+      const RuleLibrary * _library = nullptr;
+      const RuleRefListStorage * _storage = nullptr;
+      IntT precedence = 0;
+
+      bool is_valid() const {
+        return _storage != nullptr && _storage->is_valid();
+      }
+
+      IntT size() const {
+        TESL_ASSERT(_storage != nullptr);
+        return _storage->size;
+      }
+
+      const RuleLibrary & get_library() const {
+        TESL_ASSERT(_library != nullptr);
+        return *_library;
+      }
+
+      bool operator==(const RuleRefList &other) const {
+        return _storage == other._storage;
+      }
+
+      RuleRef operator[](IntT i) const;
+
+      constexpr RuleRefList(const RuleLibrary * l, const RuleRefListStorage * st, IntT p) : _library(l), _storage(st), precedence(p) {}
+      constexpr RuleRefList() = default;
+    };
+
+    struct RuleRef {
+      RuleRefList list;
+      const RuleRefStorage * _storage = nullptr;
+
+      bool is_valid() const {
+        return _storage != nullptr && _storage->is_valid();
+      }
+
+      bool operator==(const RuleRef & other) const {
+        return _storage == other._storage;
+      }
+
+      CharStrView get_name() const;
+      PatternRef get_pattern() const;
+      ParseResult parse(Parser & p, ParseSequence && seq);
+
+      constexpr RuleRef(const RuleRefList & l, const RuleRefStorage * r) : list(l), _storage(r) {}
+      constexpr RuleRef() = default;
+    };
+
+    struct PatternRef {
+      RuleRef rule;
+      const PatternRefStorage * _storage = nullptr;
+
+      bool is_valid() const {
+        return _storage != nullptr && _storage->is_valid();
+      }
+
+      bool operator==(const PatternRef & other) const {
+        return _storage == other._storage;
+      }
+
+      IntT size() const {
+        TESL_ASSERT(_storage != nullptr);
+        return _storage->size;
+      }
+
+      ElementRef operator[](IntT i) const;
+
+      constexpr PatternRef(const RuleRef & r, const PatternRefStorage * p) : rule(r), _storage(p) {}
+      constexpr PatternRef() = default;
+    };
+
+    struct ElementRef {
+      PatternRef pattern;
+      IntT element_index = 0;
+
+      bool is_valid() const {
+        return pattern.is_valid() && element_index >= 0 && element_index <= pattern.size();
+      }
+
+      bool operator==(const ElementRef & other) const {
+        return pattern == other.pattern && element_index == other.element_index;
+      }
+
+      const PatternElement * operator->() const {
+        return &pattern._storage->elements[element_index];
+      }
+
+      operator const PatternElement &() const {
+        return pattern._storage->elements[element_index];
+      }
+
+      PatternElement::Kind get_kind() const {
+        return (*this)->kind;
+      }
+
+      bool matches_rule() const;
+      bool matches_rule(const RuleRef & r) const;
+      bool matches_token(Token::Kind tk) const;
+      IntT get_matched_rule_precedence() const;
+      ElementRef follow() const;
+#ifdef TESL_PARSER_NESTED_OPT
+      void get_branch_choices_impl(Array<ElementRef> & array) const;
+      Array<ElementRef> get_branch_choices() const;
+#endif
+      Str stringify_branch_choices() const;
+      bool is_end() const;
+      bool can_end_pattern() const;
+      //void validate_branch_choices() const;
+      ElementRef choose_branch(Token::Kind tok) const;
+
+      constexpr ElementRef(const PatternRef & p, IntT i) : pattern(p), element_index(i) {}
+      constexpr ElementRef() = default;
+    };
+  }
+}
+
+template<typename CharT>
+class fmt::formatter<tesl::Parser::ParseResult, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::Parser::ParseResult & pr, Context & ctx) const {
+    using namespace tesl;
+    using namespace rules;
+
+    switch (pr.kind) {
+      case ParseResult::NONE:
+        return fmt::format_to(ctx.out(), "<none>");
+      case ParseResult::TOKEN:
+        return fmt::format_to(ctx.out(), "token: {:?}", pr.token);
+      case ParseResult::VALUE:
+        return fmt::format_to(ctx.out(), "value: {}", pr.value);
+      case ParseResult::IDENTIFIER:
+        return fmt::format_to(ctx.out(), "identifier: {}", pr.identifier);
+      case ParseResult::EXPR:
+        return fmt::format_to(ctx.out(), "expr: {}", pr.expr.type);
+    }
+
+    TESL_UNREACHABLE;
+  }
+};
+
+template<typename CharT>
+class fmt::formatter<tesl::rules::ElementRef, CharT> {
+public:
+  template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
+  template<typename Context> constexpr auto format(const tesl::rules::ElementRef & e, Context & ctx) const {
+    using namespace tesl;
+    using namespace rules;
+
+    if (!e.is_valid()) {
+      return fmt::format_to(ctx.out(), "<invalid-pattern-element>");
+    }
+
+    if (e.element_index == e.pattern.size()) {
+      return fmt::format_to(ctx.out(), "<pattern-end>");
+    }
+
+    const RuleRefList & rule_list = e.pattern.rule.list;
+    const RuleLibrary & library = rule_list.get_library();
+  
+    switch (e->kind) {
+      case PatternElement::TOKEN:
+        return fmt::format_to(ctx.out(), "{:?}", e->token);
+      case PatternElement::ABSOLUTE_PRECEDENCE_RULE:
+      case PatternElement::RELATIVE_PRECEDENCE_RULE: {
+#ifdef TESL_DEBUG_PARSER
+        return fmt::format_to(ctx.out(), "{}@p{}", library.get_label(), e.get_matched_rule_precedence());
+#else
+        return fmt::format_to(ctx.out(), "{}", library.get_label());
+#endif
+      } break;
+      case PatternElement::OPTIONAL:
+        return fmt::format_to(ctx.out(), "<opt{:+d}>", e->offset);
+      case PatternElement::JUMP:
+        return fmt::format_to(ctx.out(), "<jmp{:+d}>", e->offset);
+    }
+  
+    TESL_UNREACHABLE;
+  }
+};
+
+namespace tesl {
+  namespace rules {
+    RuleRefList RuleLibrary::operator[](IntT p) const {
+      TESL_ASSERT(_lists != nullptr);
+      TESL_ASSERT(p < _size);
+      return {this, &_lists[p], p};
+    }
+
+    RuleRef RuleRefList::operator[](IntT i) const {
+      TESL_ASSERT(_storage != nullptr);
+      TESL_ASSERT(_storage->rules->is_valid());
+      TESL_ASSERT(i < _storage->size);
+      return {*this, &_storage->rules[i]};
+    }
+
+    CharStrView RuleRef::get_name() const {
+      return _storage->name;
+    }
+
+    PatternRef RuleRef::get_pattern() const {
+      return {*this, &_storage->pattern};
+    }
+
+    ParseResult RuleRef::parse(Parser & p, ParseSequence && seq) {
+      ParseFn parsefn = _storage->parse;
+      return ((&p)->*parsefn)(MOV(seq));
+    }
+
+    ElementRef PatternRef::operator[](IntT i) const {
+      return {*this, i};
+    }
+
+    bool ElementRef::matches_rule() const {
+      const tesl::rules::PatternElement & e = *this;
+      return e.kind == PatternElement::ABSOLUTE_PRECEDENCE_RULE || e.kind == PatternElement::RELATIVE_PRECEDENCE_RULE;
+    }
+
+    bool ElementRef::matches_rule(const RuleRef & r) const {
+      const tesl::rules::PatternElement & e = *this;
+      if (e.kind == PatternElement::ABSOLUTE_PRECEDENCE_RULE) {
+        return r.list.precedence <= e.offset;
+      } else if (e.kind == PatternElement::RELATIVE_PRECEDENCE_RULE) {
+        return r.list.precedence <= (pattern.rule.list.precedence + e.offset);
+      }
+
+      return false;
+    }
+
+    bool ElementRef::matches_token(Token::Kind tk) const {
+      const tesl::rules::PatternElement & e = *this;
+      return e.kind == PatternElement::TOKEN && e.token == tk;
+    }
+
+    IntT ElementRef::get_matched_rule_precedence() const {
+      if (get_kind() == PatternElement::ABSOLUTE_PRECEDENCE_RULE) {
+        IntT p = (*this)->offset;
+        if (p < 0) {
+          p += pattern.rule.list.get_library().size();
+        }
+        return p;
+      } else if (get_kind() == PatternElement::RELATIVE_PRECEDENCE_RULE) {
+        IntT p = pattern.rule.list.precedence + (*this)->offset;
+        if (p < 0) {
+          p += pattern.rule.list.get_library().size();
+        }
+        return p;
+      }
+
+      return -1;
+    }
+
+    ElementRef ElementRef::follow() const {
+      IntT loop_count = 0;
+      IntT i = element_index;
+      const PatternElement * e = &pattern._storage->elements[i];
+      while (e && e->kind == PatternElement::JUMP) {
+        TESL_ASSERT(loop_count < 256);
+        TESL_ASSERT(e->offset != 0);
         i = i + e->offset;
-        e = &pattern.storage.elements[i];
+        e = &pattern._storage->elements[i];
         loop_count++;
       }
 
       return {pattern, i};
     }
 
-    void element_ref_t::_get_branch_choices_impl(Array<element_ref_t, 0> & choices) const {
-      if (choices.has(*this)) {
+    ElementRef ElementRef::choose_branch(Token::Kind tok) const {
+      TESL_ASSERT(get_kind() == PatternElement::OPTIONAL);
+
+#ifdef TESL_DEBUG_PARSER
+      fmt::println("choosing between branches: {}", stringify_branch_choices());
+#endif
+
+      ElementRef result;
+#ifdef TESL_PARSER_NESTED_OPT
+      auto choices = get_branch_choices();
+      for (const ElementRef & e : choices) {
+        if (e.is_end()) {
+          result = e; // possible match, but dont stop searching yet
+          continue;
+        }
+        switch (e->kind) {
+          case PatternElement::TOKEN:
+            if (e->token == tok) {
+              fmt::println("matched {}", e);
+              return e; // stop visiting branches, we found our guy
+            }
+            break;
+          case PatternElement::ABSOLUTE_PRECEDENCE_RULE:
+          case PatternElement::RELATIVE_PRECEDENCE_RULE:
+            result = e; // possible match, but dont stop searching yet
+            break;
+          case PatternElement::OPTIONAL:
+          case PatternElement::JUMP:
+            TESL_UNREACHABLE;
+        }
+      }
+#else
+      ElementRef a{pattern, element_index + 1};
+      ElementRef b{pattern, element_index + (*this)->offset + 1};
+      if (a->kind == PatternElement::TOKEN) {
+        if (a->token == tok) {
+          result = a;
+        } else if (b.is_end() || b.matches_rule()) {
+          result = b;
+        } else if (b->kind == PatternElement::TOKEN) {
+          if (b->token == tok) {
+            result = b;
+          }
+        } else {
+#ifdef TESL_DEBUG_PARSER
+          fmt::println("internal parser error: incorrect opt: second option is neither token nor rule ('{}' at element {})", pattern.rule.get_name(), element_index);
+#endif
+        }
+      } else if (b->kind == PatternElement::TOKEN) {
+        if (a.is_end() || a.matches_rule()) {
+          result = a;
+        } else if (b->token == tok) {
+          result = b;
+        } else {
+#ifdef TESL_DEBUG_PARSER
+          fmt::println("internal parser error: incorrect opt: first option is neither token nor rule ('{}' at element {})", pattern.rule.get_name(), element_index);
+#endif
+        }
+      } else {
+#ifdef TESL_DEBUG_PARSER
+        fmt::println("internal parser error: incorrect opt: no token to match ('{}' at element {})", pattern.rule.get_name(), element_index);
+#endif
+      }
+#endif
+
+#ifdef TESL_DEBUG_PARSER
+      if (result.is_valid()) {
+        fmt::println("matched {}", result);
+      } else {
+        fmt::println("no match");
+      }
+#endif
+
+      return result;
+    }
+
+#ifdef TESL_PARSER_NESTED_OPT
+    void ElementRef::get_branch_choices_impl(Array<ElementRef> & array) const {
+      if (!is_valid()) {
+        if (element_index == pattern.size()) {
+          if (!array.has(*this)) {
+            array.push_back(*this);
+          }
+        }
         return;
       }
-
-      element_ref_t points_to = follow();
+      ElementRef points_to = follow();
       switch (points_to->kind) {
-        case element_t::TOKEN:
-        case element_t::ABSOLUTE_PRECEDENCE_RULE:
-        case element_t::RELATIVE_PRECEDENCE_RULE:
-          choices.push_back(points_to);
+        case PatternElement::TOKEN:
+        case PatternElement::ABSOLUTE_PRECEDENCE_RULE:
+        case PatternElement::RELATIVE_PRECEDENCE_RULE:
+          if (points_to.is_valid() && !array.has(points_to)) {
+            array.push_back(points_to);
+          }
           return;
-        case element_t::OPTIONAL:
-          element_ref_t{pattern,  points_to.element_index + 1}._get_branch_choices_impl(choices);
-          element_ref_t{pattern, points_to.element_index + points_to->size + 1}._get_branch_choices_impl(choices);
+        case PatternElement::OPTIONAL:
+          ElementRef{pattern, points_to.element_index + 1}.get_branch_choices_impl(array);
+          ElementRef{pattern, points_to.element_index + points_to->offset + 1}.get_branch_choices_impl(array);
           return;
-        case element_t::JUMP:
-          __builtin_unreachable();
+        case PatternElement::JUMP:
+          TESL_UNREACHABLE;
       }
+
+      TESL_UNREACHABLE;
     }
 
-    template<typename T>
-    static void validate_branch_choices(T choices) {
+    Array<ElementRef> ElementRef::get_branch_choices() const {
+      Array<ElementRef> result;
+      get_branch_choices_impl(result);
+      return MOV(result);
+    }
+
+    Str ElementRef::stringify_branch_choices() const {
+      Str result;
       bool is_first = true;
-      auto choices = get_branch_choices();
-      for (const element_ref_t & e : choices) {
+      for (const ElementRef & e : get_branch_choices()) {
         if (!is_first) {
-          tesl_printf(" or ");
+          result += " or ";
         }
         is_first = false;
-        e.print();
+        result += fmt::format("{}", e);
       }
-      if (found_expr) {
-        tesl_printf("internal error: invalid pattern: more than one expression branch for optional!");
-      }
+      return result;
     }
 
-    element_ref_t element_ref_t::choose_branch(Token::Kind tok) const {
-#ifdef TESL_DEBUG_PARSER
-      tesl_printf("choosing between branches: ");
-      print_branch_choices();
-      tesl_printf("\n");
-#endif
-      bool found_token;
-      bool found_expr;
-      auto choices = get_branch_choices();
-      for (const element_ref_t & e : choices) {
-        switch (e->kind) {
-          case element_t::TOKEN: {
-            if (e->token == tok) {
-#ifdef TESL_DEBUG_PARSER
-              tesl_printf("matched ");
-              print(e->token);
-              tesl_printf("\n");
-#endif
-              found_token = true;
-              break;
-            }
-          } break;
-          case element_t::ABSOLUTE_PRECEDENCE_RULE:
-          case element_t::RELATIVE_PRECEDENCE_RULE: {
-#ifdef TESL_DEBUG_PARSER
-            tesl_printf("matched ");
-            print(e->);
-            found_expr.print();
-            tesl_printf("\n");
-#endif
-            found_expr = true;
-          } break;
-          case element_t::OPTIONAL:
-          case element_t::JUMP:
-            break;
+    bool ElementRef::can_end_pattern() const {
+      for (const ElementRef & e : get_branch_choices()) {
+        if (e.is_end()) {
+          return true;
         }
       }
-      
-      if (found_token) {
-#ifdef TESL_DEBUG_PARSER
-      tesl_printf("matched ");
-      print();
-      found_token.print();
-      tesl_printf("\n");
-#endif
-        return found_token;
-      } else {
-        return found_expr;
-      }
+      return false;
+    }
+#else
+    Str ElementRef::stringify_branch_choices() const {
+      Str result;
+
+      ElementRef a{pattern, element_index + 1};
+      ElementRef b{pattern, element_index + (*this)->offset + 1};
+
+      return fmt::format("{} or {}", a, b);
     }
 
-    void element_ref_t::print_branch_choices() const {
-      bool is_first = true;
-      auto choices = get_branch_choices();
-      for (const element_ref_t & e : choices) {
-        if (!is_first) {
-          tesl_printf(" or ");
-        }
-        is_first = false;
-        e.print();
-      }
+    bool ElementRef::can_end_pattern() const {
+      ElementRef a{pattern, element_index + 1};
+      ElementRef b{pattern, element_index + (*this)->offset + 1};
+
+      return a.is_end() || b.is_end();
+    }
+#endif
+
+    bool ElementRef::is_end() const {
+      return pattern.is_valid() && element_index == pattern.size();
     }
 
     template<int ElementCount>
-    struct pattern_t {
+    struct PatternTmpl {
       static constexpr int size = ElementCount;
-      element_t elements[ElementCount];
+      PatternElement elements[ElementCount];
 
-      constexpr operator const element_t *() const { return elements; }
+      constexpr operator const PatternElement *() const { return elements; }
     };
 
     template<typename ... Ts>
-    constexpr pattern_t<sizeof...(Ts)> make_pattern(Ts ... elements) {
+    constexpr PatternTmpl<sizeof...(Ts)> make_pattern(Ts ... elements) {
       static_assert(sizeof...(elements) > 0);
-      return {element_t{elements}...};
+      return {PatternElement{elements}...};
     }
 
     template<int ElementCount>
-    struct rule_t {
-      parse_fn parse = nullptr;
-      pattern_t<ElementCount> pattern;
+    struct RuleTmpl {
+      CharStrView name;
+      ParseFn parse = nullptr;
+      PatternTmpl<ElementCount> pattern;
     };
 
     template<typename T>
-    struct rule_list_t;
+    struct RuleListTmpl;
 
     template<int V, int ... NextVs>
-    struct rule_list_t<value_pack<V, NextVs...>> : rule_list_t<value_pack<NextVs...>> {
-      using base = rule_list_t<value_pack<NextVs...>>;
+    struct RuleListTmpl<value_pack<V, NextVs...>> : RuleListTmpl<value_pack<NextVs...>> {
+      using base = RuleListTmpl<value_pack<NextVs...>>;
       
-      rule_t<V> this_rule;
-      static constexpr int size = sizeof...(NextVs) + 1;
+      RuleTmpl<V> this_rule;
+      static constexpr IntT size = sizeof...(NextVs) + 1;
 
-      constexpr rule_ref_storage_t operator[](int i) {
+      constexpr RuleRefStorage operator[](IntT i) {
         if (i < 0) {
           return {};
         } else if (i == 0) {
-          return {this_rule.parse, {this_rule.pattern.elements, V}};
+          return {this_rule.name, this_rule.parse, {this_rule.pattern.elements, V}};
         } else {
           return base::operator[](i - 1);
         }
       }
 
-      constexpr rule_list_t(rule_t<V> rule, rule_t<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
+      constexpr RuleListTmpl(RuleTmpl<V> rule, RuleTmpl<NextVs> ... next_rules) : base(next_rules...), this_rule(rule) {}
     };
 
     template<>
-    struct rule_list_t<value_pack<>> {
-      rule_t<0> pattern;
-      static constexpr int size = 0;
+    struct RuleListTmpl<value_pack<>> {
+      RuleTmpl<0> pattern;
+      static constexpr IntT size = 0;
 
-      constexpr rule_ref_storage_t operator[](int i) {
+      constexpr RuleRefStorage operator[](IntT i) {
         return {};
       }
     };
@@ -618,17 +806,18 @@ namespace tesl {
     // woof woof :3
     // meow meow >:3
     template<typename T>
-    struct rule_library_impl;
+    struct RuleLibraryTmplBase;
 
     template<int ... Vs, typename ... NextTs>
-    struct rule_library_impl<type_pack<value_pack<Vs...>, NextTs...>> : rule_library_impl<type_pack<NextTs...>> {
-      using base = rule_library_impl<type_pack<NextTs...>>;
+    struct RuleLibraryTmplBase<type_pack<value_pack<Vs...>, NextTs...>> : RuleLibraryTmplBase<type_pack<NextTs...>> {
+      using base = RuleLibraryTmplBase<type_pack<NextTs...>>;
 
-      rule_list_t<value_pack<Vs...>> this_list;
-      rule_ref_storage_t list_rules[sizeof...(Vs)];
+      RuleListTmpl<value_pack<Vs...>> this_list;
+
+      RuleRefStorage list_rules[sizeof...(Vs)];
       static constexpr int size = sizeof...(NextTs) + 1;
 
-      constexpr rule_ref_list_storage_t operator[](int i) {
+      constexpr RuleRefListStorage operator[](int i) {
         if (i < 0) {
           return {};
         } else if (i == 0) {
@@ -638,7 +827,7 @@ namespace tesl {
         }
       }
 
-      constexpr rule_library_impl(rule_list_t<value_pack<Vs...>> rule_list, rule_list_t<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
+      constexpr RuleLibraryTmplBase(RuleListTmpl<value_pack<Vs...>> rule_list, RuleListTmpl<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
         for (int i = 0; i < sizeof...(Vs); ++i) {
           list_rules[i] = this_list[i];
         }
@@ -646,48 +835,26 @@ namespace tesl {
     };
 
     template<>
-    struct rule_library_impl<type_pack<>> {
+    struct RuleLibraryTmplBase<type_pack<>> {
       static constexpr int size = 0;
 
-      constexpr rule_ref_list_storage_t operator[](int i) {
+      constexpr RuleRefListStorage operator[](int i) {
         return {};
       }
     };
 
-    struct rule_library_ref_t {
-      const rule_library_info_t &info;
-      const rule_ref_list_storage_t * lists;
-      const int size;
-      const int max_precedence;
-
-      constexpr rule_ref_list_t operator[](uint8_t p) const { return {lists[p], info, p}; }
-
-      template<typename T>
-      constexpr rule_library_ref_t(const T & library) : info(library.info), lists(library.lists), size(library.size), max_precedence(library.max_precedence) {}
-
-      rule_ref_t find_rule_precedence(Token::Kind token, int precedence, int element_index) const;
-      ParseResult parse_precedence(te_parser_state & s, int precedence) const;
-      ParseResult parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, parsed_sequence_t::node initial) const;
-    };
-
     template<typename ... Ts>
-    struct rule_library_t : public rule_library_impl<util::type_pack<Ts...>> {
-      using base = rule_library_impl<util::type_pack<Ts...>>;
+    struct RuleLibraryTmpl : public RuleLibraryTmplBase<type_pack<Ts...>> {
+      using base = RuleLibraryTmplBase<type_pack<Ts...>>;
 
       static constexpr int size = sizeof...(Ts);
+
       static constexpr int max_precedence = size - 1;
 
-      rule_library_info_t info;
-      rule_ref_list_storage_t lists[sizeof...(Ts)];
-      rule_library_ref_t ref;
+      StrView label;
+      RuleRefListStorage lists[sizeof...(Ts)];
 
-      static_assert(size <= 256, "too many precedence levels!");
-
-      const rule_library_ref_t * operator->() const {
-        return &ref;
-      }
-
-      constexpr rule_library_t(const char * l, rule_list_t<Ts> ... rule_lists) : base(rule_lists...), info(l, size, max_precedence), ref(*this) {
+      constexpr RuleLibraryTmpl(StrView l, RuleListTmpl<Ts> ... rule_lists) : base(rule_lists...), label(l) {
         for (int i = 0; i < sizeof...(Ts); ++i) {
           lists[i] = base::operator[](i);
         }
@@ -695,131 +862,127 @@ namespace tesl {
     };
 
     template<int ElementCount>
-    constexpr rule_t<ElementCount> make_rule(parse_fn parse_fn, pattern_t<ElementCount> pattern) {
-      return {parse_fn, pattern};
+    constexpr RuleTmpl<ElementCount> make_rule(CharStrView name, ParseFn parse_fn, PatternTmpl<ElementCount> pattern) {
+      return {name, parse_fn, pattern};
     }
 
     template<int ... Vs>
-    constexpr auto make_rule_list(rule_t<Vs> ... rules) {
-      return rule_list_t<util::value_pack<Vs...>>{rules...};
+    constexpr auto make_rule_list(RuleTmpl<Vs> ... rules) {
+      return RuleListTmpl<value_pack<Vs...>>{rules...};
     }
 
     template<typename ... Ts>
-    constexpr auto make_rule_library(const char * label, rule_list_t<Ts> ... lists) {
-      return rule_library_t<Ts...>{label, lists...};
+    constexpr auto make_rule_library(StrView label, RuleListTmpl<Ts> ... lists) {
+      return RuleLibraryTmpl<Ts...>{label, lists...};
     }
 
     template<int8_t Offset>
-    constexpr element_t relative_precedence_rule = element_t{element_t::RELATIVE_PRECEDENCE_RULE, Offset};
+    constexpr PatternElement relative_precedence_rule = PatternElement{PatternElement::RELATIVE_PRECEDENCE_RULE, Offset};
     template<int8_t Precedence>
-    constexpr element_t precedence_rule = element_t{element_t::ABSOLUTE_PRECEDENCE_RULE, Precedence};
+    constexpr PatternElement precedence_rule = PatternElement{PatternElement::ABSOLUTE_PRECEDENCE_RULE, Precedence};
 
     // matches an expression with lower precedence
-    constexpr element_t lower_rule = relative_precedence_rule<-1>;
+    constexpr PatternElement lower_rule = relative_precedence_rule<-1>;
 
     // matches an expression with same or lower precedence
-    constexpr element_t similar_rule = relative_precedence_rule<0>;
+    constexpr PatternElement similar_rule = relative_precedence_rule<0>;
 
     // marks a block of length N starting at the next element that is optional
     template<int8_t N>
-    constexpr element_t opt = element_t{element_t::OPTIONAL, N};
+    constexpr PatternElement opt = PatternElement{PatternElement::OPTIONAL, N};
 
     // jumps the element index to a relative offset N (used to make repeating patterns)
     template<int8_t N>
-    constexpr element_t jmp = element_t{element_t::JUMP, N};
+    constexpr PatternElement jmp = PatternElement{PatternElement::JUMP, N};
 
     // exactly one of the first or second element of a pattern must be a token
     // at most one of each token can appear in the first slot of all patterns (also applies to the second slot separately)
-    // the element immediately after an 'opt<...>' or after the block it creates must be a token
+    // the element immediately after an 'opt<...>' or after the block it creates must be at least 1 token and at most 1 expression, and no jmp or opt
     // the first expr must be a token or a similar_rule
-    constexpr auto expr_pattern_library = make_rule_library(
-      "expression",
+    constexpr auto expression_library_tmpl = make_rule_library(
+      TESL_STRVIEW("expression"),
       make_rule_list(
-        make_rule(parse_literal_expr, make_pattern(Token::LITERAL)),
-        make_rule(parse_identifier_expr, make_pattern(Token::IDENTIFIER))
+        make_rule("literal", &Parser::parse_literal_expr, make_pattern(Token::LITERAL)),
+        make_rule("identifier", &Parser::parse_identifier_expr, make_pattern(Token::IDENTIFIER))
       ),
       make_rule_list(
-        make_rule(parse_grouping_expr, make_pattern(Token::OPEN_PAREN, precedence_rule<-1>, Token::CLOSE_PAREN))
+        make_rule("grouping", &Parser::parse_grouping_expr, make_pattern(Token::OPEN_PAREN, precedence_rule<-1>, Token::CLOSE_PAREN))
       ),
       make_rule_list(
-        make_rule(parse_subscript_expr, make_pattern(similar_rule, Token::OPEN_SQUARE_BRACKET, precedence_rule<-2>, Token::OPEN_SQUARE_BRACKET)),
-        make_rule(parse_call_expr, make_pattern(similar_rule, Token::OPEN_PAREN, opt<6>, precedence_rule<-2>, opt<4>, Token::COMMA, precedence_rule<-2>, opt<1>, jmp<-3>, Token::CLOSE_PAREN)),
-        make_rule(parse_construct_expr, make_pattern(Token::TYPENAME, Token::OPEN_PAREN, opt<6>, precedence_rule<-2>, opt<4>, Token::COMMA, precedence_rule<-2>, opt<1>, jmp<-3>, Token::CLOSE_PAREN)),
-        make_rule(parse_dot_expr, make_pattern(similar_rule, Token::DOT, Token::IDENTIFIER)),
-        make_rule(parse_postfix_expr, make_pattern(similar_rule, Token::PLUS_PLUS)),
-        make_rule(parse_postfix_expr, make_pattern(similar_rule, Token::MINUS_MINUS))
+        make_rule("subscript", &Parser::parse_subscript_expr, make_pattern(similar_rule, Token::OPEN_SQUARE_BRACKET, precedence_rule<-2>, Token::OPEN_SQUARE_BRACKET)),
+        make_rule("function call", &Parser::parse_call_expr, make_pattern(similar_rule, Token::OPEN_PAREN, opt<5>, precedence_rule<-2>, opt<3>, Token::COMMA, precedence_rule<-2>, jmp<-3>, Token::CLOSE_PAREN)),
+        make_rule("member access", &Parser::parse_dot_expr, make_pattern(similar_rule, Token::DOT, Token::IDENTIFIER))
       ),
       make_rule_list(
-        make_rule(parse_prefix_expr, make_pattern(Token::PLUS_PLUS, similar_rule)),
-        make_rule(parse_prefix_expr, make_pattern(Token::MINUS_MINUS, similar_rule)),
-        make_rule(parse_prefix_expr, make_pattern(Token::PLUS, similar_rule)),
-        make_rule(parse_prefix_expr, make_pattern(Token::MINUS, similar_rule)),
-        make_rule(parse_prefix_expr, make_pattern(Token::BANG, similar_rule))
+        make_rule("unary plus", &Parser::parse_prefix_expr, make_pattern(Token::PLUS, similar_rule)),
+        make_rule("unary minus", &Parser::parse_prefix_expr, make_pattern(Token::MINUS, similar_rule)),
+        make_rule("logical not", &Parser::parse_prefix_expr, make_pattern(Token::BANG, similar_rule)),
+        make_rule("bitwise not", &Parser::parse_prefix_expr, make_pattern(Token::TILDE, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_arithmetic_expr, make_pattern(similar_rule, Token::STAR, similar_rule)),
-        make_rule(parse_arithmetic_expr, make_pattern(similar_rule, Token::SLASH, similar_rule)),
-        make_rule(parse_arithmetic_expr, make_pattern(similar_rule, Token::PERCENT, similar_rule))
+        make_rule("multipication", &Parser::parse_arithmetic_expr, make_pattern(similar_rule, Token::STAR, similar_rule)),
+        make_rule("division", &Parser::parse_arithmetic_expr, make_pattern(similar_rule, Token::SLASH, similar_rule)),
+        make_rule("remainder", &Parser::parse_arithmetic_expr, make_pattern(similar_rule, Token::PERCENT, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_arithmetic_expr, make_pattern(similar_rule, Token::PLUS, similar_rule)),
-        make_rule(parse_arithmetic_expr, make_pattern(similar_rule, Token::MINUS, similar_rule))
+        make_rule("addition", &Parser::parse_arithmetic_expr, make_pattern(similar_rule, Token::PLUS, similar_rule)),
+        make_rule("subtraction", &Parser::parse_arithmetic_expr, make_pattern(similar_rule, Token::MINUS, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, Token::LESS_LESS, similar_rule)),
-        make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, Token::GREATER_GREATER, similar_rule))
+        make_rule("bitwise left shift", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::LESS_LESS, similar_rule)),
+        make_rule("bitwise right shift", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::GREATER_GREATER, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, Token::AND, similar_rule))
+        make_rule("bitwise and", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::AND, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, Token::CARET, similar_rule))
+        make_rule("bitwise xor", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::CARET, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_bitwise_op_expr, make_pattern(similar_rule, Token::PIPE, similar_rule))
+        make_rule("bitwise or", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::PIPE, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::LESS, similar_rule)),
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::GREATER, similar_rule)),
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::LESS_EQUAL, similar_rule)),
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::GREATER_EQUAL, similar_rule))
+        make_rule("compare less than", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::LESS, similar_rule)),
+        make_rule("compare greater than", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::GREATER, similar_rule)),
+        make_rule("compare less than or equal to", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::LESS_EQUAL, similar_rule)),
+        make_rule("compare greater than or equal to", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::GREATER_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::EQUAL_EQUAL, similar_rule)),
-        make_rule(parse_comparison_expr, make_pattern(similar_rule, Token::BANG_EQUAL, similar_rule))
+        make_rule("compare equal", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::EQUAL_EQUAL, similar_rule)),
+        make_rule("compare not equal", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::BANG_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_boolean_op_expr, make_pattern(similar_rule, Token::AND_AND, similar_rule))
+        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AND_AND, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule))
+        make_rule("logical or", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_ternary_expr, make_pattern(similar_rule, Token::QUESTION_MARK, similar_rule, Token::COLON, similar_rule))
+        make_rule("ternary", &Parser::parse_ternary_expr, make_pattern(similar_rule, Token::QUESTION_MARK, similar_rule, Token::COLON, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::EQUAL, similar_rule)),
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::PLUS_EQUAL, similar_rule)),
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::MINUS_EQUAL, similar_rule)),
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::STAR_EQUAL, similar_rule)),
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::SLASH_EQUAL, similar_rule)),
-        make_rule(parse_assignment_expr, make_pattern(similar_rule, Token::PERCENT_EQUAL, similar_rule))
+        make_rule("assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::EQUAL, similar_rule)),
+        make_rule("add assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::PLUS_EQUAL, similar_rule)),
+        make_rule("subtract assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::MINUS_EQUAL, similar_rule)),
+        make_rule("multiply assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::STAR_EQUAL, similar_rule)),
+        make_rule("divide assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::SLASH_EQUAL, similar_rule)),
+        make_rule("remainder assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::PERCENT_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule(parse_sequence_expr, make_pattern(similar_rule, Token::COMMA, lower_rule, opt<1>, jmp<-3>))
+        make_rule("sequence", &Parser::parse_sequence_expr, make_pattern(lower_rule, Token::COMMA, lower_rule, opt<3>, Token::COMMA, lower_rule, jmp<-3>))
       )
     );
-    constexpr int expr_pattern_library_size_bytes = sizeof(expr_pattern_library);
 
-    rule_ref_t rule_library_ref_t::find_rule_precedence(Token::Kind token, int precedence, int element_index) const {
+    RuleRef RuleLibrary::find_rule_precedence_first(Token::Kind token, IntT precedence) const {
       if (precedence < 0) {
-        precedence += size;
+        precedence += size();
       }
-      for (int p = precedence; p >= 0; --p) {
-        rule_ref_list_t pattern_list = operator[](p);
-        for (int i = 0; i < pattern_list.size(); ++i) {
-          rule_ref_t rule = pattern_list[i];
-          if (rule.get_pattern()[element_index]->token == token) {
+
+      for (IntT p = precedence; p >= 0; --p) {
+        RuleRefList pattern_list = operator[](p);
+        for (IntT i = 0; i < pattern_list.size(); ++i) {
+          RuleRef rule = pattern_list[i];
+          if (rule.get_pattern()[0].matches_token(token)) {
             return rule;
           }
         }
@@ -828,189 +991,130 @@ namespace tesl {
       return {};
     }
 
-    ParseResult rule_library_ref_t::parse_precedence_impl(te_parser_state & s, rules::rule_ref_t rule, ParseResult initial) const {
-      TESL_FAIL_COND(!rule.is_valid(), return parsed_sequence_t::node(new_error_expr(), rule.list.precedence));
-
-      auto pattern_size = rule.get_pattern().size();
-      Parser::ParseSequence nodes;
-      nodes.reserve(pattern_size);
-      nodes.push_back(initial);
-
-#define FAIL_RETURN_ERROR_EXPR\
-do {\
-  te_op * error_sources[nodes.size()];\
-  int error_sources_count = 0;\
-  for (int i = 0; i < nodes.size(); ++i) {\
-    switch(nodes[i].kind) {\
-      case ParseResult::TOKEN:\
-        break;\
-      case ParseResult::EXPR:\
-        error_sources[error_sources_count++] = nodes[i].expr;\
-        break;\
-      case ParseResult::OP:\
-        error_sources[error_sources_count++] = nodes[i].op;\
-        break;\
-    }\
-  }\
-  return {new_error_expr_v(error_sources, error_sources_count), rule.list.precedence};\
-} while (false)
-
-      for (int i = 1; i < pattern_size;) {
-        element_ref_t e = rule.get_pattern()[i];
-        switch (e->kind) {
-          case rules::element_t::TOKEN: {
-            if (e->token != s.curr_token) {
-              ErrorRecord er(s);
-#ifdef TESL_DEBUG_COMPILE
-              te_print("error: expected '");
-              te_print(e->token);
-              te_print("', got ");
-              te_print(s.curr_token);
-              te_print("!\n");
-#endif
-              te_make_error(s);
-              s.advance();
-              FAIL_RETURN_ERROR_EXPR;
-            }
-            nodes.push_back(s.curr_token);
-            s.advance();
-          } break;
-          case rules::element_t::ABSOLUTE_PRECEDENCE_RULE: {
-            nodes.push_back(parse_precedence(s, e->offset));
-          } break;
-          case rules::element_t::RELATIVE_PRECEDENCE_RULE: {
-            nodes.push_back(parse_precedence(s, rule.list.precedence + e->offset));
-          } break;
-          case rules::element_t::OPTIONAL: {
-            element_ref_t b = e.choose_branch(s.curr_token.kind);
-            if (!b.is_valid()) {
-              ErrorRecord er(s);
-#ifdef TESL_DEBUG_COMPILE
-              tesl_printf("error: expected ");
-              e.print_branch_choices();
-              tesl_printf(", got ");
-              te_print(s.curr_token);
-              tesl_printf("!\n");
-#endif
-              te_make_error(s);
-              s.advance();
-              FAIL_RETURN_ERROR_EXPR;
-            }
-
-            i = b.element_index;
-            continue;
-          } break;
-          case rules::element_t::JUMP: {
-            i += e->offset;
-            continue;
-          } break;
-        }
-
-        i++;
-      }
-
-      te_op * ret = rule.parse(s, MOV(nodes));
-      if (!ret) {
-        FAIL_RETURN_ERROR_EXPR;
-      }
-
-      return {ret, rule.list.precedence};
-
-#undef FAIL_RETURN_ERROR_EXPR
-    }
-
-    // never returns null
-    parsed_sequence_t::node rule_library_ref_t::parse_precedence(te_parser_state & s, int precedence) const {
+    RuleRef RuleLibrary::find_rule_precedence_second(const RuleRef & r, Token::Kind token, IntT precedence) const {
       if (precedence < 0) {
-        precedence += size;
+        precedence += size();
       }
-      TESL_FAIL_COND(precedence >= 256, return parsed_sequence_t::node(new_error_expr(), precedence));
 
-      rule_ref_t rule = find_rule_precedence(s, precedence, 0);
-      if (!rule.is_valid()) {
-        ErrorRecord er(s);
-#ifdef TESL_DEBUG_COMPILE
-        te_print("error: expected ");
-        te_print(info.rule_label);
-        te_print(" got '");
-        te_print(s.curr_token.kind);
-        te_print("'!\n");
-#endif
-        te_make_error(s);
-        s.advance();
-        return parsed_sequence_t::node(new_error_expr(), precedence);
-      }
-      parsed_sequence_t::node n = parse_precedence_impl(s, rule, s.consume());
-      while (true) {
-        rule = find_rule_precedence(s, precedence, 1);
-        if (!rule.is_valid()) {
-          break;
+      for (IntT p = precedence; p >= 0; --p) {
+        RuleRefList pattern_list = operator[](p);
+        for (IntT i = 0; i < pattern_list.size(); ++i) {
+          RuleRef rule = pattern_list[i];
+          if (rule.get_pattern().size() < 2) {
+            continue;
+          }
+          if (rule.get_pattern()[0].matches_rule(r) && rule.get_pattern()[1].matches_token(token)) {
+            return rule;
+          }
         }
-        n = parse_precedence_impl(s, rule, n);
       }
 
-      return n;
+      return {};
     }
   }
 
-  // never returns null
-  te_expr * parse_expr(te_parser_state & s, int precedence) {
+  const rules::RuleLibrary Parser::expression_library = rules::expression_library_tmpl;
+
+  void Parser::parse_program() {
+    current_token = tokenizer.next_token();
+    parse_precedence(expression_library, -1);
+  }
+
+  Parser::ParseResult Parser::parse_precedence(const rules::RuleLibrary & library, IntT precedence) {
     using namespace rules;
-    parsed_sequence_t::node result = expr_pattern_library->parse_precedence(s, precedence);
-    switch (result.kind) {
-      case parsed_sequence_t::node::EXPR:
-        return result.expr;
-      case parsed_sequence_t::node::OP:
-        return new_error_expr(result.op);
-      case parsed_sequence_t::node::TOKEN:
-        return new_error_expr();
+
+    if (precedence < 0) {
+      precedence += library.size();
     }
 
-    return new_error_expr();
-  }
+    TESL_FAIL_COND(precedence >= library.size(), return {});
 
-  // never returns null
-  te_expr * parse_top_level_expr(te_parser_state & s) {
-    return parse_expr(s, -1);
-  }
-
-  void ErrorRecord::reset() {
-    if (parser) {
-      line_start = parser->line_start;
-      point = start = parser->curr_token.name.ptr;
-      end = parser->curr_token.name.end;
-      line_num = parser->line_num;
-    } else {
-      line_start = nullptr;
-      start = nullptr;
-      point = nullptr;
-      end = nullptr;
-      line_num = 0;
+    RuleRef rule = library.find_rule_precedence_first(current_token.kind, precedence);
+    if (!rule.is_valid()) {
+      parser_error("expected {}[p{}], got {}!", library.get_label(), precedence, current_token);
+      current_token = tokenizer.next_token();
+      return {};
     }
+
+    ParseResult result{current_token};
+#ifdef TESL_DEBUG_PARSER
+    fmt::println("push {}", current_token);
+#endif
+    current_token = tokenizer.next_token();
+    do {
+      result = parse_precedence_impl(rule, MOV(result));
+      rule = library.find_rule_precedence_second(rule, current_token.kind, precedence);
+    } while (rule.is_valid());
+
+    return result;
   }
 
-  ErrorRecord::ErrorRecord(Parser & p) : parser(&p), prev(p.this_error) {
-    line_start = p.line_start;
-    point = start = p.curr_token.name.ptr;
-    end = p.curr_token.name.end;
-    line_num = p.line_num;
-    p.this_error = this;
+  Parser::ParseResult Parser::parse_precedence_impl(rules::RuleRef rule, ParseResult initial) {
+    using namespace rules;
+
+    TESL_FAIL_COND(!rule.is_valid(), return {});
+
+    auto pattern_size = rule.get_pattern().size();
+    Parser::ParseSequence parse_sequence;
+    parse_sequence.push_back(MOV(initial));
+
+    for (IntT i = 1; i < pattern_size;) {
+      ElementRef e = rule.get_pattern()[i];
+      switch (e->kind) {
+        case rules::PatternElement::TOKEN: {
+          if (e->token != current_token) {
+            parser_error("expected {}, got {}!", e, current_token);
+            current_token = tokenizer.next_token();
+            return {};
+          }
+          
+          parse_sequence.push_back(ParseResult{current_token});
+#ifdef TESL_DEBUG_PARSER
+          fmt::println("push {}", parse_sequence.back());
+#endif
+          current_token = tokenizer.next_token();
+        } break;
+        case rules::PatternElement::ABSOLUTE_PRECEDENCE_RULE:
+        case rules::PatternElement::RELATIVE_PRECEDENCE_RULE: {
+          parse_sequence.push_back(parse_precedence(rule.list.get_library(), e.get_matched_rule_precedence()));
+        } break;
+        case rules::PatternElement::OPTIONAL: {
+          ElementRef b = e.choose_branch(current_token.kind);
+          if (!b.is_valid()) {
+            parser_error("expected {}, got {}!", e.stringify_branch_choices(), current_token);
+            current_token = tokenizer.next_token();
+            return {};
+          }
+
+          i = b.element_index;
+          continue;
+        } break;
+        case rules::PatternElement::JUMP: {
+          i += e->offset;
+          continue;
+        } break;
+      }
+
+      i++;
+    }
+
+#ifdef TESL_DEBUG_PARSER
+    fmt::println("parsing {}:", rule.get_name());
+    for (IntT i = 0; i < parse_sequence.size(); ++i) {
+      fmt::println("  {}", parse_sequence[i]);
+    }
+#endif
+
+    return rule.parse(*this, MOV(parse_sequence));
   }
 
-  ErrorRecord::~ErrorRecord() {
-    if (parser) {
-      parser->this_error = prev;
-      parser->prev_error = *this;
-      parser->prev_error.parser = nullptr;
-      parser->prev_error.prev = nullptr;
-    }
+  Parser::Parser(Tokenizer pTokenizer, Compiler pCompiler) : tokenizer(pTokenizer), compiler(pCompiler) {}
+
+  void Parser::print_error_source(const Token & t) const {
+    tesl::print_error_source(tokenizer.line_num, tokenizer.line_start, t.span.begin(), t.span.begin(), t.span.end());
   }
-  
-  void Parser::print_error_line_info() const {
-    if (this_error != nullptr) {
-      this_error->print();
-    } else {
-      print_error_source(line_num, line_start, curr_token.name.ptr, curr_token.name.ptr, curr_token.name.end);
-    }
+
+  void Parser::print_error_source() const {
+    print_error_source(current_token);
   }
 } // namespace tesl

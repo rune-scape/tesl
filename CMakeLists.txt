@@ -40,10 +40,10 @@ add_executable(tesl
     tesl_ref.hpp
     tesl_type.hpp tesl_type.cpp
     tesl_hash.hpp tesl_hash.cpp
+    #tesl_symbol.hpp tesl_symbol.cpp
     tesl_tokenizer.hpp tesl_tokenizer.cpp
-    tesl_symbol.hpp tesl_symbol.cpp
+    tesl_parser.hpp tesl_parser.cpp
     #tesl_compiler.hpp tesl_compiler.cpp
-    #tesl_parser.hpp tesl_parser.cpp
 )
 
 add_subdirectory(fmt)

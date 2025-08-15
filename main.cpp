@@ -1,6 +1,8 @@
+#include "tesl_str.hpp"
 #include "tesl_tokenizer.hpp"
+#include "tesl_parser.hpp"
+#include "tesl_compiler.hpp"
 #include <fmt/format.h>
-
 #include <clocale>
 
 /*int main(int argc, const char **argv) {
@@ -37,20 +39,22 @@
     tesl_printf("no parse :(");
   }
 }*/
+
 int main(int argc, const char **argv) {
   //std::setlocale(LC_ALL, "");
 
-  //const char * prog_str = "if (input) {\n\treturn vec3(vec2(1.01, 1.1), 1.2);\n} else {\n\treturn vec3(vec2(1.01, 1.1), 1.2) % 0.9;\n}\n";
+  //const char * prog_str = "#comment\r\nif (input) {\n\treturn vec3(vec2(1.01, 1.1), 1.2);\n} else {\n\treturn vec3(vec2(1.01, 1.1), 1.2) % 0.9;\n}\n";
   //const char * prog_str = "vec3 v = vec3(vec2(1.01, 1.1), 1.2) % input;\nreturn v;\n";
   //const char * prog_str = "# comment\r\n  return (\"ok\\z\\n\");\n";
-  const char * prog_str = "\"test\"+(ifwhiledodo, \"ok\\z\\n\", \"swagever\")\n";
+  //const char * prog_str = "\"test\"+(ifwhiledodo, \"ok\\z\\n\", \"swagever\")\n";
+  const char * prog_str = "\"test\".test(ifwhiledodo, \"ok\\z\\n\", \"swagever\")\n";
   //const char * prog_str = "vec3 v = vec3(vec2(1.01, 1.1 0), 1.2);\nfor (int i = input; i; --i) {\n\tv = v * 1.3;\n}\nreturn v;\n";
   //const char * prog_str = "vec3 v = vec3(vec2(1.01, 1.1), 1.2);\nfor (int i = 0; i < input; ++i) {\n\tv *= 1.3;\n}\nreturn v;\n";
 
   // debug tokenizer
   tesl::Tokenizer tokenizer{prog_str};
   tesl::IntT last_line = 0;
-  fmt::println("--- tokenizer start ---");
+  fmt::println("~ tokenizer start:");
   while (true) {
     tesl::Token tok = tokenizer.next_token();
     if (last_line != tokenizer.line_num) {
@@ -70,11 +74,17 @@ int main(int argc, const char **argv) {
       break;
     }
   }
-  fmt::println("--- tokenizer end ---");
+  fmt::println("~ tokenizer end.");
 
-  fmt::println("--- print_source test ---");
-  tesl::print_error_source(1, prog_str, &prog_str[21], &prog_str[25], &prog_str[29]);
-  fmt::println("--- print_source end ---");
+  //fmt::println("~ print_error_source start:");
+  //tesl::print_error_source(1, prog_str, &prog_str[21], &prog_str[25], &prog_str[29]);
+  //fmt::println("~ print_error_source end.");
+
+  tokenizer.reset();
+  fmt::println("~ parser start:");
+  tesl::Parser parser{tokenizer, tesl::Compiler{}};
+  parser.parse_program();
+  fmt::println("~ parser end.");
 
   /*tesl_printf("compiling...\n");
   tesl_printf("\n%s\n", prog_str);

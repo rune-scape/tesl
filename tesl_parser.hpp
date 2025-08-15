@@ -4,49 +4,51 @@
 #include "tesl_compiler.hpp"
 
 namespace tesl {
-  struct Parser;
+  namespace rules {
+    struct PatternElement;
+    struct PatternRefStorage;
+    struct RuleRefStorage;
+    struct RuleRefListStorage;
 
-  // meant to be allocated on the stack at the moment of parsing a potential error
-  struct ErrorRecord {
-  private:
-    Parser * parser = nullptr;
-    ErrorRecord * prev = nullptr;
+    struct ElementRef;
+    struct PatternRef;
+    struct RuleRef;
+    struct RuleRefList;
+
+    struct RuleLibrary {
+      StrView _label;
+      const RuleRefListStorage * _lists;
+      IntT _size;
   
-  public:
-    const char * line_start = nullptr;
-    const char * start = nullptr;
-    const char * point = nullptr;
-    const char * end = nullptr;
-    IntT line_num = 0;
+      StrView get_label() const { return _label; }
+      IntT size() const { return _size; }
+      IntT max_precedence() const { return _size - 1; }
+  
+      RuleRefList operator[](IntT p) const;
+      RuleRef find_rule_precedence_first(Token::Kind token, IntT precedence) const;
+      RuleRef find_rule_precedence_second(const RuleRef & r, Token::Kind token, IntT precedence) const;
+  
+      RuleLibrary & operator=(const RuleLibrary &) = delete;
+      RuleLibrary & operator=(RuleLibrary &&) = delete;
+      RuleLibrary(const RuleLibrary &) = delete;
+      RuleLibrary(RuleLibrary &&) = delete;
 
-    inline IntT get_line() { return line_num; }
-    inline IntT get_column() { return point - line_start; }
-    void reset();
-    inline void set_start(const char * p_start) { start = p_start; }
-    inline void set_point(const char * p_point) { point = p_point; }
-    inline void set_end(const char * p_end) { end = p_end; }
-    void print() const;
-
-    ErrorRecord &operator=(const ErrorRecord &) = delete;
-    ErrorRecord &operator=(ErrorRecord &&) = delete;
-    ErrorRecord(const ErrorRecord &) = delete;
-    ErrorRecord(ErrorRecord &&) = delete;
-
-    explicit ErrorRecord(Parser & parser);
-    ErrorRecord() = default;
-    ~ErrorRecord();
-  };
+      template<typename T>
+      constexpr RuleLibrary(const T & library) : _label(library.label), _lists(library.lists), _size(library.size) {}
+    };
+  }
 
   struct Parser {
     Tokenizer tokenizer;
+    Token current_token;
     Compiler compiler;
+    static const rules::RuleLibrary expression_library;
 
-    ErrorRecord *this_error = nullptr;
-    ErrorRecord prev_error;
     bool has_error = false;
 
     struct ParseSequence;
     struct ParseResult;
+    using ParseFn = Parser::ParseResult (Parser::*)(Parser::ParseSequence sequence);
 
     ParseResult parse_literal_expr(ParseSequence sequence);
     ParseResult parse_identifier_expr(ParseSequence sequence);
@@ -65,14 +67,13 @@ namespace tesl {
     ParseResult parse_assignment_expr(ParseSequence sequence);
     ParseResult parse_sequence_expr(ParseSequence sequence);
 
-    void print_error_line_info() const;
+    void parse_program();
+    ParseResult parse_precedence(const rules::RuleLibrary & library, IntT precedence);
+    ParseResult parse_precedence_impl(rules::RuleRef rule, ParseResult initial);
 
-    template<typename ... Ts>
-    void error(Ts && ... vs) {
-      has_error = true;
-      (print(vs), ...);
-      print("\n");
-      print_error_line_info();
-    }
+    void print_error_source(const Token & t) const;
+    void print_error_source() const;
+
+    Parser(Tokenizer pTokenizer, Compiler pCompiler);
   };
 }
