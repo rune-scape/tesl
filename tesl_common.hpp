@@ -42,7 +42,10 @@
 
 #ifndef NDEBUG
 #define TESL_UNREACHABLE \
-  TESL_FAIL_COND_BASE("unreachable code", true, abort(), "at %s:%d in %s", __FILE__, __LINE__, __func__)
+  do { \
+    TESL_FAIL_COND_BASE("unreachable code", true, abort(), "at %s:%d in %s", __FILE__, __LINE__, __func__); \
+    __builtin_unreachable(); \
+  } while (false)
 #else
 #define TESL_UNREACHABLE __builtin_unreachable()
 #endif
