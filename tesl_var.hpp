@@ -6,6 +6,11 @@
 #include "tesl_type.hpp"
 
 namespace tesl {
+  struct VarRef {
+    void * data;
+    TypeRef type;
+  };
+
   struct Variant {
     char _storage[variant_storage_size] = {0};
     static_assert(variant_storage_size >= sizeof(void *), "variant storage must be big enough to store a pointer!");
@@ -47,6 +52,45 @@ namespace tesl {
       return _type;
     }
 
+    TESL_ALWAYS_INLINE void clear() {
+      if (_type->size <= variant_storage_size) {
+        _type->deinit(_get_ptr_to_storage(), nullptr);
+      } else {
+        _type->delete_(_get_storage_as_ptr());
+      }
+      _type = get_type_info_of<Null>();
+    }
+
+    operator VarRef() {
+      return {_get_ptr_to_data(), _type};
+    }
+
+    operator VarRef() const {
+      return {const_cast<void *>(_get_ptr_to_data()), _type};
+    }
+
+    Variant & operator=(const VarRef & other) {
+      // todo: maybe delay destructor
+      if (_type->size == other.type->size) {
+        void * data_ptr = _get_ptr_to_data();
+        _type->deinit(data_ptr, nullptr);
+        _type = other.type;
+      } else {
+        clear();
+        _type = other.type;
+        if (other.type->size > variant_storage_size) {
+          _get_storage_as_ptr() = other.type->allocate();
+        }
+      }
+
+      if (_type->size <= variant_storage_size) {
+        _type->copy(other.data, _get_ptr_to_storage());
+      } else {
+        _type->copy(other.data, _get_storage_as_ptr());
+      }
+      return *this;
+    }
+
     Variant & operator=(const Variant & other) {
       // todo: maybe delay destructor
       if (_type->size == other._type->size) {
@@ -54,7 +98,7 @@ namespace tesl {
         _type->deinit(data_ptr, nullptr);
         _type = other._type;
       } else {
-        this->~Variant();
+        clear();
         _type = other._type;
         if (other._type->size > variant_storage_size) {
           _get_storage_as_ptr() = other._type->allocate();
@@ -76,7 +120,7 @@ namespace tesl {
         _type->deinit(data_ptr, nullptr);
         _type = other._type;
       } else {
-        this->~Variant();
+        clear();
         _type = other._type;
         if (other._type->size > variant_storage_size) {
           _get_storage_as_ptr() = other._type->allocate();
@@ -91,6 +135,7 @@ namespace tesl {
       return *this;
     }
 
+    TESL_ALWAYS_INLINE Variant(const VarRef & other) { this->operator=(other); }
     TESL_ALWAYS_INLINE Variant(const Variant & other) { this->operator=(other); }
     TESL_ALWAYS_INLINE Variant(Variant && other) { this->operator=(MOV(other)); }
     TESL_ALWAYS_INLINE Variant() = default;
@@ -106,12 +151,7 @@ namespace tesl {
     }
 
     ~Variant() {
-      if (_type->size <= variant_storage_size) {
-        _type->deinit(_get_ptr_to_storage(), nullptr);
-      } else {
-        _type->delete_(_get_storage_as_ptr());
-      }
-      _type = get_type_info_of<Null>();
+      clear();
     }
   };
 
