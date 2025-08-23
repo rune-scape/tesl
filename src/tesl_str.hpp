@@ -2,7 +2,6 @@
 
 #include "tesl_common.hpp"
 #include "tesl_hash.hpp"
-#include "tesl_type.hpp"
 #include "tesl_array.hpp"
 #include <fmt/fwd.h>
 #include <string>

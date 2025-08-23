@@ -84,8 +84,6 @@ namespace tesl {
         deinit(pDeinit) {}
   };
 
-  using TypeRef = Ref<const TypeInfo>;
-
   namespace detail {
     template<typename T>
     void default_init(void * context, void * args, void * ret) {
@@ -125,12 +123,6 @@ namespace tesl {
 
   inline const tesl::TypeInfo & format_as(TypeRef t) { return *t; }
   inline const tesl::TypeInfo & format_as(const TypeInfo * t) { return *t; }
-
-  template<typename T>
-  TypeRef get_type_info_of();
-
-#define TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(type, name) \
-  template<> TypeRef get_type_info_of<type>();
 
 #define TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(type, name) \
   template<> \

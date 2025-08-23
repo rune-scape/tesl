@@ -10,6 +10,7 @@
 #include <new>
 #include <string_view>
 #include <type_traits>
+#include "tesl_fwd.hpp"
 
 //#define TESL_USE_CHAR32
 #define TESL_USE_64_BIT_NUMBERS
@@ -71,6 +72,9 @@
 #define FLEXIBLE_ARRAY 0
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
+
+#define TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(type, name) \
+  template<> TypeRef get_type_info_of<type>();
 
 namespace tesl {
   struct Null {};
@@ -168,6 +172,9 @@ namespace tesl {
 
   #define MOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)> &&>(__VA_ARGS__)
   #define FWD(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)
+
+  using TypeRef = Ref<const TypeInfo>;
+  template<typename T> TypeRef get_type_info_of();
 
   template<typename T>
   inline void swap(T & a, T & b) {

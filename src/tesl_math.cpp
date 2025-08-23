@@ -1,5 +1,7 @@
 #include "tesl_math.hpp"
 
+#include "tesl_type.hpp"
+
 namespace tesl {
   TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(Vec2, Vec2)
   TESL_DEFINE_BUILTIN_TYPE_INFO_GETTER(Vec3, Vec3)

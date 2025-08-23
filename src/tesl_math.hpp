@@ -2,7 +2,6 @@
 
 #include "tesl_common.hpp"
 #include "tesl_hash.hpp"
-#include "tesl_type.hpp"
 #include <fmt/fwd.h>
 
 namespace tesl {
