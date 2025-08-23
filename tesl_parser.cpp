@@ -422,15 +422,15 @@ namespace tesl {
         return (*this)->kind;
       }
 
-      bool matches_rule() const;
+      bool is_token() const;
+      bool is_rule() const;
+      bool is_opt() const;
+      bool is_jmp() const;
       bool matches_rule(const RuleRef & r) const;
       bool matches_token(Token::Kind tk) const;
       IntT get_matched_rule_precedence() const;
       ElementRef follow() const;
-#ifdef TESL_PARSER_NESTED_OPT
-      void get_branch_choices_impl(Array<ElementRef> & array) const;
-      Array<ElementRef> get_branch_choices() const;
-#endif
+      bool validate_branch_choices() const;
       Str stringify_branch_choices() const;
       bool is_end() const;
       bool can_end_pattern() const;
@@ -540,9 +540,24 @@ namespace tesl {
       return {*this, i};
     }
 
-    bool ElementRef::matches_rule() const {
+    bool ElementRef::is_token() const {
+      const tesl::rules::PatternElement & e = *this;
+      return e.kind == PatternElement::TOKEN;
+    }
+
+    bool ElementRef::is_rule() const {
       const tesl::rules::PatternElement & e = *this;
       return e.kind == PatternElement::ABSOLUTE_PRECEDENCE_RULE || e.kind == PatternElement::RELATIVE_PRECEDENCE_RULE;
+    }
+
+    bool ElementRef::is_opt() const {
+      const tesl::rules::PatternElement & e = *this;
+      return e.kind == PatternElement::OPTIONAL;
+    }
+
+    bool ElementRef::is_jmp() const {
+      const tesl::rules::PatternElement & e = *this;
+      return e.kind == PatternElement::JUMP;
     }
 
     bool ElementRef::matches_rule(const RuleRef & r) const {
@@ -595,146 +610,98 @@ namespace tesl {
     }
 
     ElementRef ElementRef::choose_branch(Token::Kind tok) const {
+      TESL_ASSERT(is_valid());
       TESL_ASSERT(get_kind() == PatternElement::OPTIONAL);
 
 #ifdef TESL_DEBUG_PARSER
       fmt::println("choosing between branches: {}", stringify_branch_choices());
 #endif
 
-      ElementRef result;
-#ifdef TESL_PARSER_NESTED_OPT
-      auto choices = get_branch_choices();
-      for (const ElementRef & e : choices) {
-        if (e.is_end()) {
-          result = e; // possible match, but dont stop searching yet
-          continue;
-        }
-        switch (e->kind) {
-          case PatternElement::TOKEN:
-            if (e->token == tok) {
-              fmt::println("matched {}", e);
-              return e; // stop visiting branches, we found our guy
-            }
-            break;
-          case PatternElement::ABSOLUTE_PRECEDENCE_RULE:
-          case PatternElement::RELATIVE_PRECEDENCE_RULE:
-            result = e; // possible match, but dont stop searching yet
-            break;
-          case PatternElement::OPTIONAL:
-          case PatternElement::JUMP:
-            TESL_UNREACHABLE;
-        }
-      }
-#else
-      ElementRef a{pattern, element_index + 1};
-      ElementRef b{pattern, element_index + (*this)->offset + 1};
-      if (a->kind == PatternElement::TOKEN) {
-        if (a->token == tok) {
-          result = a;
-        } else if (b.is_end() || b.matches_rule()) {
-          result = b;
+      ElementRef match = *this;
+      int loops = 0;
+      while (match.is_opt()) {
+        ElementRef a = ElementRef{match.pattern, match.element_index + 1}.follow();
+        ElementRef b = ElementRef{match.pattern, match.element_index + match->offset + 1}.follow();
+
+        if (a->kind == PatternElement::TOKEN) {
+          if (a->token == tok) {
+            match = a;
+          } else {
+            match = b;
+          }
         } else if (b->kind == PatternElement::TOKEN) {
           if (b->token == tok) {
-            result = b;
+            match = b;
+          } else {
+            match = a;
           }
         } else {
 #ifdef TESL_DEBUG_PARSER
-          fmt::println("internal parser error: incorrect opt: second option is neither token nor rule ('{}' at element {})", pattern.rule.get_name(), element_index);
+          fmt::println(stderr, "internal parser error: invalid opt: no token to match ('{}' at element {})", match.pattern.rule.get_name(), match.element_index);
 #endif
+          break;
         }
-      } else if (b->kind == PatternElement::TOKEN) {
-        if (a.is_end() || a.matches_rule()) {
-          result = a;
-        } else if (b->token == tok) {
-          result = b;
-        } else {
-#ifdef TESL_DEBUG_PARSER
-          fmt::println("internal parser error: incorrect opt: first option is neither token nor rule ('{}' at element {})", pattern.rule.get_name(), element_index);
-#endif
-        }
-      } else {
-#ifdef TESL_DEBUG_PARSER
-        fmt::println("internal parser error: incorrect opt: no token to match ('{}' at element {})", pattern.rule.get_name(), element_index);
-#endif
+
+        TESL_FAIL_COND(!match.is_valid() || match == *this || loops >= 127, return {});
+        loops++;
       }
-#endif
 
 #ifdef TESL_DEBUG_PARSER
-      if (result.is_valid()) {
-        fmt::println("matched {}", result);
+      if (match.is_valid() && (match.matches_token(tok) || match.is_rule())) {
+        fmt::println("matched {}", match);
       } else {
         fmt::println("no match");
       }
 #endif
 
-      return result;
-    }
-
-#ifdef TESL_PARSER_NESTED_OPT
-    void ElementRef::get_branch_choices_impl(Array<ElementRef> & array) const {
-      if (!is_valid()) {
-        if (element_index == pattern.size()) {
-          if (!array.has(*this)) {
-            array.push_back(*this);
-          }
-        }
-        return;
-      }
-      ElementRef points_to = follow();
-      switch (points_to->kind) {
-        case PatternElement::TOKEN:
-        case PatternElement::ABSOLUTE_PRECEDENCE_RULE:
-        case PatternElement::RELATIVE_PRECEDENCE_RULE:
-          if (points_to.is_valid() && !array.has(points_to)) {
-            array.push_back(points_to);
-          }
-          return;
-        case PatternElement::OPTIONAL:
-          ElementRef{pattern, points_to.element_index + 1}.get_branch_choices_impl(array);
-          ElementRef{pattern, points_to.element_index + points_to->offset + 1}.get_branch_choices_impl(array);
-          return;
-        case PatternElement::JUMP:
-          TESL_UNREACHABLE;
-      }
-
-      TESL_UNREACHABLE;
-    }
-
-    Array<ElementRef> ElementRef::get_branch_choices() const {
-      Array<ElementRef> result;
-      get_branch_choices_impl(result);
-      return MOV(result);
+      return match;
     }
 
     Str ElementRef::stringify_branch_choices() const {
-      Str result;
+      fmt::memory_buffer buf;
+      auto out = fmt::basic_appender<char>(buf);
       bool is_first = true;
-      for (const ElementRef & e : get_branch_choices()) {
+
+      TESL_ASSERT(is_valid());
+      TESL_ASSERT(get_kind() == PatternElement::OPTIONAL);
+
+      ElementRef match = *this;
+      int loops = 0;
+      while (match.is_opt()) {
+        ElementRef a = ElementRef{match.pattern, match.element_index + 1}.follow();
+        ElementRef b = ElementRef{match.pattern, match.element_index + match->offset + 1}.follow();
+
         if (!is_first) {
-          result += " or ";
+          out = fmt::format_to(out, " or ");
+        } else {
+          is_first = false;
         }
-        is_first = false;
-        result += fmt::format("{}", e);
-      }
-      return result;
-    }
-
-    bool ElementRef::can_end_pattern() const {
-      for (const ElementRef & e : get_branch_choices()) {
-        if (e.is_end()) {
-          return true;
+        if (a->kind == PatternElement::TOKEN) {
+          out = fmt::format_to(out, "{:?}", a->token);
+          match = b;
+        } else if (b->kind == PatternElement::TOKEN) {
+          out = fmt::format_to(out, "{:?}", b->token);
+          match = a;
+        } else {
+#ifdef TESL_DEBUG_PARSER
+          fmt::println(stderr, "internal parser error: invalid opt: no token to match ('{}' at element {})", match.pattern.rule.get_name(), match.element_index);
+#endif
+          break;
         }
+
+        TESL_FAIL_COND(!match.is_valid() || match == *this || loops >= 127, return {});
+        if (match.is_token() || match.is_rule()) {
+          break;
+        }
+        loops++;
       }
-      return false;
-    }
-#else
-    Str ElementRef::stringify_branch_choices() const {
-      Str result;
 
-      ElementRef a{pattern, element_index + 1};
-      ElementRef b{pattern, element_index + (*this)->offset + 1};
+      if (!is_first) {
+        out = fmt::format_to(out, " or ");
+      }
+      out = fmt::format_to(out, "{}", match);
 
-      return fmt::format("{} or {}", a, b);
+      return CharStr{buf.data(), buf.size()};
     }
 
     bool ElementRef::can_end_pattern() const {
@@ -743,7 +710,6 @@ namespace tesl {
 
       return a.is_end() || b.is_end();
     }
-#endif
 
     bool ElementRef::is_end() const {
       return pattern.is_valid() && element_index == pattern.size();
@@ -895,10 +861,9 @@ namespace tesl {
     template<int8_t N>
     constexpr PatternElement jmp = PatternElement{PatternElement::JUMP, N};
 
-    // exactly one of the first or second element of a pattern must be a token
-    // at most one of each token can appear in the first slot of all patterns (also applies to the second slot separately)
-    // the element immediately after an 'opt<...>' or after the block it creates must be at least 1 token and at most 1 expression, and no jmp or opt
-    // the first expr must be a token or a similar_rule
+    // at least 1 token must be present in the first or second element of a pattern
+    // at most 1 of each token may appear in the first slot of all patterns (also applies to the second slot separately, if the first slot is not also a token)
+    // at least 1 token must be present in the 2 choices directly lead to by an 'opt<...>' element (jumps followed)
     constexpr auto expression_library_tmpl = make_rule_library(
       TESL_STRVIEW("expression"),
       make_rule_list(
@@ -910,7 +875,7 @@ namespace tesl {
       ),
       make_rule_list(
         make_rule("subscript", &Parser::parse_subscript_expr, make_pattern(similar_rule, Token::OPEN_SQUARE_BRACKET, precedence_rule<-2>, Token::OPEN_SQUARE_BRACKET)),
-        make_rule("function call", &Parser::parse_call_expr, make_pattern(similar_rule, Token::OPEN_PAREN, opt<5>, precedence_rule<-2>, opt<3>, Token::COMMA, precedence_rule<-2>, jmp<-3>, Token::CLOSE_PAREN)),
+        make_rule("function call", &Parser::parse_call_expr, make_pattern(similar_rule, Token::OPEN_PAREN, opt<5>, precedence_rule<-2>, opt<3>, Token::COMMA, precedence_rule<-2>, opt<-3>, Token::CLOSE_PAREN)),
         make_rule("member access", &Parser::parse_dot_expr, make_pattern(similar_rule, Token::DOT, Token::IDENTIFIER))
       ),
       make_rule_list(
@@ -969,7 +934,7 @@ namespace tesl {
         make_rule("remainder assign", &Parser::parse_assignment_expr, make_pattern(similar_rule, Token::PERCENT_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule("sequence", &Parser::parse_sequence_expr, make_pattern(lower_rule, Token::COMMA, lower_rule, opt<3>, Token::COMMA, lower_rule, jmp<-3>))
+        make_rule("sequence", &Parser::parse_sequence_expr, make_pattern(lower_rule, Token::COMMA, lower_rule, opt<-3>))
       )
     );
 
