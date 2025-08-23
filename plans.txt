@@ -1,0 +1,27 @@
+slots and signals: useful for game/gui development
+user defined structs/objects
+possibly a bare struct type and also a more featurefull object type 
+packed and aligned data
+typed packed dynamic/static arrays/maps
+member access is named lookup of a member variable/function
+named symbols are interned in their own global (per-env) pool and accessed as array indices for speed
+member variables are typed references
+member functions are function pools (possibly containing a bound base object) with many different call operators to facilitate fast call dispatching in the best case and also include a slow path that chooses the best function for the args then converts and calls if unambiguous
+operator symbols are also interned in their own global and separate pool and access in the same way
+operators additionally 
+- all members references are typed variable references
+  - member variables return setters and getters and operators
+  - calls symbols are interned in their own pool and access as array indices for speed in the best case. in the worst case, call arguments are dynamically converted
+
+ref-counting
+  possibly (probly not) weighted ref-counting:
+    initial refs start at high value
+    sharing the ref splits the value
+    sharing a ref with a weight of one needs to get more weight from the actual ref count
+    could also extend to 
+
+symbols:
+- "[_]": subscript/array index operator
+- "+=_", "-=_", "*=_", "/=_": 
+
+underscores are replaced with type info e.g. "[_]" with 2 int parameters would be "[Int, Int]"
