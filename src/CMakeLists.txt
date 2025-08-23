@@ -25,6 +25,7 @@ target_link_options(tesl PRIVATE -fno-rtti -fno-exceptions -Werror=switch)
 # maybe -ffast-math -static -static-libgcc -static-libstdc++ -nodefaultlibs -fsanitize=address -m32 idk
 
 if (TESL_PICO)
+    target_sources(tesl PUBLIC tesl_syscall_stub_getentropy.c)
     target_link_libraries(tesl PUBLIC
         pico_stdlib
         #pico_printf
