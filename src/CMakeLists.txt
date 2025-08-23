@@ -47,4 +47,7 @@ if (TESL_PICO)
 
     # create map/bin/hex/uf2 file etc.
     pico_add_extra_outputs(tesl)
+else()
+    target_compile_options(tesl PRIVATE -flto)
+    target_link_options(tesl PRIVATE -flto)
 endif ()
