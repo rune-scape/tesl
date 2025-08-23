@@ -20,19 +20,19 @@ namespace tesl {
 
     //template<typename T, typename ... Next> using first_type = T;
 
-    template<IntT I, bool Last, typename ... Next>
+    template<IntT I, typename ... Next>
     struct offset_of0;
     template<IntT I, typename T, typename ... Next>
-    struct offset_of0<I, false, T, Next...> {
+    struct offset_of0<I, T, Next...> {
       static constexpr IntT call(IntT in) {
-        return offset_of0<I - 1, I == 1, Next...>::call(in + sizeof(T));
+        return offset_of0<I - 1, Next...>::call(in + sizeof(T));
       }
     };
     template<typename ... Next>
-    struct offset_of0<0, true, Next...> {
+    struct offset_of0<0, Next...> {
       static constexpr IntT call(IntT in) { return in; }
     };
-    template<IntT I, typename ... Next> constexpr IntT offset_of = offset_of0<I, I == 0, Next...>::call(0);
+    template<IntT I, typename ... Next> constexpr IntT offset_of = offset_of0<I, Next...>::call(0);
 
     template<typename ISequence, auto Fn, typename R, typename ... Ps>
     struct function0;
