@@ -110,23 +110,6 @@ namespace tesl {
     TESL_ALWAYS_INLINE constexpr ArrayView() {}
   };
 
-  template<typename T>
-  inline IntT string_length(const T * str) {
-    IntT result = 0;
-    for (; *str; ++str, ++result);
-    return result;
-  }
-
-  template<>
-  inline IntT string_length<char>(const char * str) {
-    return strlen(str);
-  }
-
-  template<typename T>
-  constexpr IntT constexpr_strlen(const T * str) {
-    return *str ? 1 + constexpr_strlen(str + 1) : 0;
-  }
-
   template<typename T> inline constexpr const T * empty_str;
   template<> inline constexpr const char * empty_str<char> = "";
   template<> inline constexpr const wchar_t * empty_str<wchar_t> = L"";
@@ -149,16 +132,20 @@ namespace tesl {
 
 
   template<typename CharT>
-  using StrViewBaseT = std::basic_string_view<CharT>;
+  using BasicStrViewT = std::basic_string_view<CharT>;
 
-  using CharStrView = StrViewBaseT<char>;
-  using WCharStrView = StrViewBaseT<wchar_t>;
-  using Char16StrView = StrViewBaseT<char16_t>;
-  using Char32StrView = StrViewBaseT<char32_t>;
-  using StrView = StrViewBaseT<CommonCharT>;
+  using CharStrView = BasicStrViewT<char>;
+  using WCharStrView = BasicStrViewT<wchar_t>;
+  using Char16StrView = BasicStrViewT<char16_t>;
+  using Char32StrView = BasicStrViewT<char32_t>;
+  using StrView = BasicStrViewT<CommonCharT>;
 
-#define ConstStrView(str) StrView{str, constexpr_strlen(str)}
-#define TESL_STRVIEW(str) ConstStrView(TESL_STR(str))
+#define TESL_STRVIEW(str) StrView(TESL_STR(str))
+
+  template<typename T>
+  constexpr IntT string_length(const T * str) {
+    return BasicStrViewT<T>{str}.length();
+  }
 
   constexpr IntT variant_storage_size = sizeof(void *);
 
