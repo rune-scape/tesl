@@ -1,5 +1,5 @@
 #include "tesl_common.hpp"
-#include "tesl_fmt.hpp"
+#include <fmt/format.h>
 
 namespace tesl {
   void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * start, const char * point, const char * const end) {

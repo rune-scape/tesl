@@ -39,7 +39,6 @@ add_executable(tesl
     tesl_var.hpp tesl_var.cpp
     tesl_ref.hpp
     tesl_type.hpp tesl_type.cpp
-    tesl_fmt.hpp tesl_fmt.cpp
     tesl_hash.hpp tesl_hash.cpp
     tesl_tokenizer.hpp tesl_tokenizer.cpp
     tesl_symbol.hpp tesl_symbol.cpp
@@ -47,18 +46,11 @@ add_executable(tesl
     #tesl_parser.hpp tesl_parser.cpp
 )
 
-#add_subdirectory(fmt)
-#target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0)
-#target_compile_options(fmt PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc)
-#target_link_options(fmt PUBLIC -fno-rtti -fno-exceptions -nodefaultlibs -lc)
-#target_link_libraries(tesl PRIVATE fmt)
-
-if (NOT TESL_PICO)
-    add_library(rpmalloc STATIC rpmalloc/rpmalloc/rpmalloc.c)
-    target_compile_definitions(rpmalloc PRIVATE ENABLE_OVERRIDE=1)
-    target_include_directories(rpmalloc PUBLIC rpmalloc/rpmalloc)
-    target_link_libraries(tesl PRIVATE rpmalloc)
-endif ()
+add_subdirectory(fmt)
+target_compile_definitions(fmt PUBLIC FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0 FMT_REDUCE_INT_INSTANTIATIONS=1 FMT_USE_WRITE_CONSOLE FMT_USE_STD_STRING=1 FMT_USE_FILE_PRINT_BUFFER=0)
+target_compile_options(fmt PRIVATE -fno-rtti -fno-exceptions)
+target_link_options(fmt PRIVATE -fno-rtti -fno-exceptions)
+target_link_libraries(tesl PRIVATE fmt)
 
 add_subdirectory(intrusive_shared_ptr)
 target_link_libraries(tesl PRIVATE isptr)
@@ -67,9 +59,8 @@ target_link_libraries(tesl PRIVATE isptr)
 #target_link_options(tesl PUBLIC -fsanitize=address -m32)
 #target_compile_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
 #target_link_options(tesl PUBLIC -fsanitize=address -fno-rtti -fno-exceptions)
-target_compile_definitions(tesl PRIVATE FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_BUILTIN_TYPES=0 FMT_USE_EXCEPTIONS=0 FMT_USE_STD_STRING=0 FMT_USE_WRITE_CONSOLE=1)
-target_compile_options(tesl PUBLIC -fno-rtti -fno-exceptions -Werror=switch)
-target_link_options(tesl PUBLIC -fno-rtti -fno-exceptions -Werror=switch)
+target_compile_options(tesl PRIVATE -fno-rtti -fno-exceptions -Werror=switch)
+target_link_options(tesl PRIVATE -fno-rtti -fno-exceptions -Werror=switch)
 # maybe -ffast-math -static -static-libgcc -static-libstdc++ -nodefaultlibs idk
 
 if (TESL_PICO)

@@ -1,6 +1,6 @@
-[submodule "rpmalloc"]
-	path = rpmalloc
-	url = ./rpmalloc
 [submodule "intrusive_shared_ptr"]
 	path = intrusive_shared_ptr
 	url = ./intrusive_shared_ptr/
+[submodule "fmt"]
+	path = fmt
+	url = ./fmt

@@ -1,14 +1,17 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_fmt_fwd.hpp"
 #include "tesl_hash.hpp"
 #include "tesl_type.hpp"
 #include "tesl_array.hpp"
+#include <fmt/fwd.h>
+#include <string>
 
 namespace tesl {
-  // some members are just to get it to work with fmt
   template<typename T>
+  using BasicStrT = std::basic_string<T>;
+  // some members are just to get it to work with fmt
+  /*template<typename T>
   struct BasicStrT {
     using CharT = T;
     using value_type = T;
@@ -88,7 +91,7 @@ namespace tesl {
   extern template struct BasicStrT<char>;
   extern template struct BasicStrT<wchar_t>;
   extern template struct BasicStrT<char16_t>;
-  extern template struct BasicStrT<char32_t>;
+  extern template struct BasicStrT<char32_t>;*/
 
   using CharStr = BasicStrT<char>;
   using WCharStr = BasicStrT<wchar_t>;
@@ -104,7 +107,7 @@ namespace tesl {
   TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Str, Str)
 }
 
-template<typename CharT>
+/*template<typename CharT>
 class fmt::formatter<tesl::CharStr, CharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
@@ -138,4 +141,4 @@ public:
   template<typename Context> constexpr auto format(const tesl::Char32Str & str, Context & ctx) const {
     return format_to(ctx.out(), "{}", tesl::Char32StrView{str.data(), static_cast<size_t>(str.size())});
   }
-};
+};*/

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_fmt_fwd.hpp"
 #include "tesl_var.hpp"
+#include <fmt/fwd.h>
 
 namespace tesl {
   struct Token {

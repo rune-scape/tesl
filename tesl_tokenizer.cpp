@@ -1,7 +1,7 @@
 #include "tesl_tokenizer.hpp"
 
 #include "tesl_str.hpp"
-#include "tesl_fmt.hpp"
+#include <fmt/format.h>
 
 namespace tesl {
   constexpr bool is_digit(char c) {

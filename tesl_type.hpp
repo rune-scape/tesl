@@ -1,8 +1,8 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_fmt_fwd.hpp"
 #include "tesl_ref.hpp"
+#include <fmt/fwd.h>
 
 namespace tesl {
   // list of builtin types to help bootstrap type system

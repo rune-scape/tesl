@@ -1,5 +1,5 @@
 #include "tesl_tokenizer.hpp"
-#include "tesl_fmt.hpp"
+#include <fmt/format.h>
 
 #include <clocale>
 
