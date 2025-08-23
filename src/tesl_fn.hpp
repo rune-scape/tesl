@@ -46,8 +46,10 @@ namespace tesl {
 
     template<auto Fn, typename R, typename ... Ps>
     struct function : public function0<index_sequence_helper<sizeof...(Ps)>, Fn, R, Ps...> {};
-
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, ArrayView<TypeRef> param_types) {
+#if __cpp_constexpr >= 202110L
+    constexpr
+#endif
+    inline FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, ArrayView<TypeRef> param_types) {
       FnObj ret;
       ret.ptr = fn;
       ret.context = context;
@@ -58,13 +60,19 @@ namespace tesl {
     };
 
     template<typename T, IntT N>
-    constexpr FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, const T (&param_types)[N]) {
+#if __cpp_constexpr >= 202110L
+    constexpr
+#endif
+    inline FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, const T (&param_types)[N]) {
       return make_function_raw(fn, context, pure, return_type, {param_types, N});
     }
 
     template<auto Fn, bool Pure, typename R, typename ... Ps>
     struct make_function_impl {
-      static constexpr FnObj call() {
+#if __cpp_constexpr >= 202110L
+      constexpr
+#endif
+      inline static FnObj call() {
         TypeRef param_types[] = {get_type_info_of<Ps>()...};
         return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, get_type_info_of<R>(), {param_types, sizeof...(Ps)});
       }
@@ -75,19 +83,28 @@ namespace tesl {
 
     template<bool Pure, typename R, typename ... Ps, R(*Fn)(Ps...)>
     struct make_function<Fn, Pure> {
-      static constexpr FnObj call() {
+#if __cpp_constexpr >= 202110L
+      constexpr
+#endif
+      inline static FnObj call() {
         return make_function_impl<Fn, Pure, R, Ps...>::call();
       }
     };
   }
 
   template<auto Fn>
-  constexpr FnObj make_function() {
+#if __cpp_constexpr >= 202110L
+  constexpr
+#endif
+  inline FnObj make_function() {
     return detail::make_function<Fn, false>::call(Fn);
   }
 
   template<auto Fn>
-  constexpr FnObj make_pure_function() {
+#if __cpp_constexpr >= 202110L
+  constexpr
+#endif
+  inline FnObj make_pure_function() {
     return detail::make_function<Fn, true>::call(Fn);
   }
 }
