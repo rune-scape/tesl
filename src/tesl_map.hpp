@@ -8,14 +8,14 @@
 
 namespace tesl {
   namespace detail {
-    struct CompareEqual {
+    struct MapCompareEqual {
       template<typename LhsT, typename RhsT>
       bool operator()(LhsT && lhs, RhsT && rhs) const {
         return FWD(lhs) == FWD(rhs);
       }
     };
 
-    struct Hasher {
+    struct MapHasher {
       template<typename T>
       uint64_t operator()(T && v) const {
         return tesl::hash(FWD(v));
@@ -24,5 +24,8 @@ namespace tesl {
   }
 
   template<typename KeyT, typename ValueT>
-  using Map = ::emhash8::HashMap<KeyT, ValueT, detail::Hasher, detail::CompareEqual>;
+  struct Map : public ::emhash8::HashMap<KeyT, ValueT, detail::MapHasher, detail::MapCompareEqual> {
+    using base = ::emhash8::HashMap<KeyT, ValueT, detail::MapHasher, detail::MapCompareEqual>;
+    using base::base;
+  };
 }

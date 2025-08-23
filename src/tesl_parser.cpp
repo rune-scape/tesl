@@ -136,7 +136,7 @@ namespace tesl {
     }
   };
 
-  struct Parser::ParseSequence : public Array<Parser::ParseResult, 3> {};
+  struct Parser::ParseSequence : public Array<Parser::ParseResult> {};
 
 #define parser_error(...) \
   do { \

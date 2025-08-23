@@ -332,9 +332,9 @@ namespace tesl {
     TESL_ALWAYS_INLINE constexpr ~Array() { clear(); }
   };*/
 
-  template<typename T, int _Unused = 0>
-  struct Array : public std::vector<T> {
-    using base = std::vector<T>;
+  template<typename T, typename Alloc = std::allocator<T> >
+  struct Array : public std::vector<T, Alloc> {
+    using base = std::vector<T, Alloc>;
     using base::base;
 
     template<typename VT>

@@ -1,13 +1,13 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_type.hpp"
 #include "tesl_array.hpp"
+#include "tesl_type.hpp"
 
 namespace tesl {
   struct FnObj : public FnObjBase {
-    Array<TypeRef, 1> return_types;
-    Array<TypeRef, 1> param_types;
+    Array<TypeRef> return_types;
+    Array<TypeRef> param_types;
   };
 //lalalala i am the secret code demon ^w^ i am hiding in between your lines of code
   TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(FnObj, Fn)
