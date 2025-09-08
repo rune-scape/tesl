@@ -11,6 +11,7 @@
 #include <string_view>
 #include <type_traits>
 #include "tesl_fwd.hpp"
+#include "tcolor.hpp"
 
 //#define TESL_USE_CHAR32
 #define TESL_USE_64_BIT_NUMBERS
@@ -21,15 +22,22 @@
 #define TESL_DEBUG_COMPILE
 //#define TESL_DEBUG_EVAL
 
-#define TESL_ERROR_BASE(prefix, ...) \
+#define TESL_ERROR_PRINT_BASE(prefix, ...) \
   do { \
-    fprintf(stderr, prefix ": "); \
-    fprintf(stderr, __VA_ARGS__); \
+    tcolor::setColor(stderr, tcolor::fg::red); \
+    tcolor::setStyle(stderr, tcolor::style::bold); \
+    std::fprintf(stderr, prefix ": "); \
+    tcolor::setStyle(stderr, tcolor::style::reset); \
+    tcolor::setColor(stderr, tcolor::fg::red); \
+    std::fprintf(stderr, __VA_ARGS__); \
+    tcolor::setColor(stderr, tcolor::fg::gray); \
+    std::fprintf(stderr, " (at %s:%d in %s)\n", __FILE__, __LINE__, __func__); \
+    tcolor::setColor(stderr, tcolor::fg::reset); \
   } while (false)
 
 #define TESL_FAIL_BASE(prefix, action, ...) \
   do { \
-    TESL_ERROR_BASE(prefix, __VA_ARGS__); \
+    TESL_ERROR_PRINT_BASE(prefix, __VA_ARGS__); \
     action; \
   } while (false)
 
@@ -38,20 +46,20 @@
     TESL_FAIL_BASE(prefix, action, __VA_ARGS__); \
   } else do {} while (false)
 
-#define TESL_FAIL_MSG(action, msg) \
-  TESL_FAIL_BASE("error", action, "%s (at %s:%d in %s)", msg, __FILE__, __LINE__, __func__)
+#define TESL_FAIL_MSG(action, ...) \
+  TESL_FAIL_BASE("error", action, __VA_ARGS__)
 
-#define TESL_FAIL_COND_MSG(cond, action, msg) \
-  TESL_FAIL_COND_BASE("error", cond, action, "%s (at %s:%d in %s)", msg, __FILE__, __LINE__, __func__)
+#define TESL_FAIL_COND_MSG(cond, action, ...) \
+  TESL_FAIL_COND_BASE("error", cond, action, __VA_ARGS__)
 
 #define TESL_FAIL_COND(cond, action) \
   TESL_FAIL_COND_MSG(cond, action, "'" #cond "' is true")
 
 #ifndef NDEBUG
-#define TESL_ASSERT_MSG(cond, msg) \
-  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), "'%s': %s (at %s:%d in %s)", #cond, msg, __FILE__, __LINE__, __func__)
+#define TESL_ASSERT_MSG(cond, ...) \
+  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), __VA_ARGS__)
 #define TESL_ASSERT(cond) \
-  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), "'%s' (at %s:%d in %s)", #cond, __FILE__, __LINE__, __func__)
+  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), "'" #cond "' is false")
 #else
 #define TESL_ASSERT_MSG(cond, msg) do {} while (false)
 #define TESL_ASSERT(cond) do {} while (false)

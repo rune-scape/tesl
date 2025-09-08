@@ -1,6 +1,7 @@
 
 add_executable(tesl
     main.cpp
+    tcolor.hpp tcolor.cpp
     tesl_common.hpp tesl_common.cpp
     tesl_math.hpp tesl_math.cpp
     tesl_str.hpp tesl_str.cpp

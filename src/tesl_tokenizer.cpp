@@ -48,15 +48,13 @@ namespace tesl {
 #define tokenizer_error(...) \
   do { \
     has_error = true; \
-    fmt::print(stderr, "tokenizer error: "); \
-    fmt::println(stderr, __VA_ARGS__); \
+    TESL_ERROR_PRINT_BASE("tokenizer error", __VA_ARGS__); \
   } while(false)
 
 #define internal_tokenizer_error(...) \
   do { \
     has_error = true; \
-    fmt::print(stderr, "internal tokenizer error: "); \
-    fmt::println(stderr, __VA_ARGS__); \
+    TESL_ERROR_PRINT_BASE("internal tokenizer error", __VA_ARGS__); \
   } while(false)
 
   Token Tokenizer::_tokenize_number_literal() {
