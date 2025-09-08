@@ -380,7 +380,7 @@ namespace tesl {
   case c: {
 #define TESL_TOKEN_GROUP_END \
   } break;
-#include "tesl_tokens.inl"
+#include "tesl_tokens.inc"
 
       }
 
@@ -423,7 +423,6 @@ namespace tesl {
 
     return token;
   }
-
 
   void Tokenizer::reset() {
     input_it = input;

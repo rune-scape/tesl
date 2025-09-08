@@ -18,7 +18,7 @@ namespace tesl {
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
-#include "tesl_tokens.inl"
+#include "tesl_tokens.inc"
 
     };
 
@@ -90,7 +90,7 @@ public:
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
-#include "tesl_tokens.inl"
+#include "tesl_tokens.inc"
 
     }
 
@@ -141,7 +141,7 @@ public:
 #define TESL_TOKEN_DECIMAL_POINT
 #define TESL_TOKEN_GROUP(...)
 #define TESL_TOKEN_GROUP_END
-#include "tesl_tokens.inl"
+#include "tesl_tokens.inc"
 
     }
 
