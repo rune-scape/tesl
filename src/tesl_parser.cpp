@@ -898,7 +898,7 @@ namespace tesl {
         make_rule("bitwise right shift", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::GREATER_GREATER, similar_rule))
       ),
       make_rule_list(
-        make_rule("bitwise and", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::AND, similar_rule))
+        make_rule("bitwise and", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::AMP, similar_rule))
       ),
       make_rule_list(
         make_rule("bitwise xor", &Parser::parse_bitwise_op_expr, make_pattern(similar_rule, Token::CARET, similar_rule))
@@ -917,7 +917,7 @@ namespace tesl {
         make_rule("compare not equal", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::BANG_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AND_AND, similar_rule))
+        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AMP_AMP, similar_rule))
       ),
       make_rule_list(
         make_rule("logical or", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule))
