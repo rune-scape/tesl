@@ -882,6 +882,7 @@ namespace tesl {
         make_rule("unary plus", &Parser::parse_prefix_expr, make_pattern(Token::PLUS, similar_rule)),
         make_rule("unary minus", &Parser::parse_prefix_expr, make_pattern(Token::MINUS, similar_rule)),
         make_rule("logical not", &Parser::parse_prefix_expr, make_pattern(Token::BANG, similar_rule)),
+        make_rule("logical not", &Parser::parse_prefix_expr, make_pattern(Token::NOT, similar_rule)),
         make_rule("bitwise not", &Parser::parse_prefix_expr, make_pattern(Token::TILDE, similar_rule))
       ),
       make_rule_list(
@@ -917,10 +918,12 @@ namespace tesl {
         make_rule("compare not equal", &Parser::parse_comparison_expr, make_pattern(similar_rule, Token::BANG_EQUAL, similar_rule))
       ),
       make_rule_list(
-        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AMP_AMP, similar_rule))
+        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AMP_AMP, similar_rule)),
+        make_rule("logical and", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::AND, similar_rule))
       ),
       make_rule_list(
-        make_rule("logical or", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule))
+        make_rule("logical or", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::PIPE_PIPE, similar_rule)),
+        make_rule("logical or", &Parser::parse_boolean_op_expr, make_pattern(similar_rule, Token::OR, similar_rule))
       ),
       make_rule_list(
         make_rule("ternary", &Parser::parse_ternary_expr, make_pattern(similar_rule, Token::QUESTION_MARK, similar_rule, Token::COLON, similar_rule))
