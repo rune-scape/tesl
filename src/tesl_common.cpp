@@ -1,4 +1,6 @@
 #include "tesl_common.hpp"
+
+#include "tesl_error.hpp"
 #include <fmt/format.h>
 
 namespace tesl {

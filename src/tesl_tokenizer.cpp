@@ -1,5 +1,6 @@
 #include "tesl_tokenizer.hpp"
 
+#include "tesl_error.hpp"
 #include "tesl_str.hpp"
 #include <fmt/format.h>
 
@@ -345,7 +346,7 @@ namespace tesl {
           extend_span(token.span);
           break;
         default: {
-          tokenizer_error("unrecognised character: '{0}' (char value: {0:#04x})", input_it[0]);
+          tokenizer_error("unrecognised character: {0:?}", input_it[0]);
           print_error_source(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
           extend_span(token.span);
         } break;

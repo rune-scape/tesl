@@ -22,59 +22,6 @@
 #define TESL_DEBUG_COMPILE
 //#define TESL_DEBUG_EVAL
 
-#define TESL_ERROR_PRINT_BASE(prefix, ...) \
-  do { \
-    tcolor::setColor(stderr, tcolor::fg::red); \
-    tcolor::setStyle(stderr, tcolor::style::bold); \
-    std::fprintf(stderr, prefix ": "); \
-    tcolor::setStyle(stderr, tcolor::style::reset); \
-    tcolor::setColor(stderr, tcolor::fg::red); \
-    std::fprintf(stderr, __VA_ARGS__); \
-    tcolor::setColor(stderr, tcolor::fg::gray); \
-    std::fprintf(stderr, " (at %s:%d in %s)\n", __FILE__, __LINE__, __func__); \
-    tcolor::setColor(stderr, tcolor::fg::reset); \
-  } while (false)
-
-#define TESL_FAIL_BASE(prefix, action, ...) \
-  do { \
-    TESL_ERROR_PRINT_BASE(prefix, __VA_ARGS__); \
-    action; \
-  } while (false)
-
-#define TESL_FAIL_COND_BASE(prefix, cond, action, ...) \
-  if (cond) [[unlikely]] { \
-    TESL_FAIL_BASE(prefix, action, __VA_ARGS__); \
-  } else do {} while (false)
-
-#define TESL_FAIL_MSG(action, ...) \
-  TESL_FAIL_BASE("error", action, __VA_ARGS__)
-
-#define TESL_FAIL_COND_MSG(cond, action, ...) \
-  TESL_FAIL_COND_BASE("error", cond, action, __VA_ARGS__)
-
-#define TESL_FAIL_COND(cond, action) \
-  TESL_FAIL_COND_MSG(cond, action, "'" #cond "' is true")
-
-#ifndef NDEBUG
-#define TESL_ASSERT_MSG(cond, ...) \
-  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), __VA_ARGS__)
-#define TESL_ASSERT(cond) \
-  TESL_FAIL_COND_BASE("assertion failed", !(cond), abort(), "'" #cond "' is false")
-#else
-#define TESL_ASSERT_MSG(cond, msg) do {} while (false)
-#define TESL_ASSERT(cond) do {} while (false)
-#endif
-
-#ifndef NDEBUG
-#define TESL_UNREACHABLE \
-  do { \
-    TESL_FAIL_COND_BASE("unreachable code", true, abort(), "at %s:%d in %s", __FILE__, __LINE__, __func__); \
-    __builtin_unreachable(); \
-  } while (false)
-#else
-#define TESL_UNREACHABLE __builtin_unreachable()
-#endif
-
 // This is used to clearly mark flexible-sized arrays that appear at the end of
 // some dynamically-allocated structs, known as the "struct hack".
 #define FLEXIBLE_ARRAY 0
@@ -247,10 +194,4 @@ namespace tesl {
   inline void print_error_source(int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end) {
     print_error_sourcev(stderr, line_num, line_start, error_start, error_point, error_end);
   }
-
-  /*template<typename ... Ts>
-  inline void printv(Ts && ... vs) {
-    (print(vs), ...);
-    tesl_printf("\n");
-  }*/
 } // namespace tesl

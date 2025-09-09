@@ -1,5 +1,6 @@
 #include "tesl_parser.hpp"
 
+#include "tesl_error.hpp"
 #include "tesl_str.hpp"
 #include <fmt/format.h>
 
