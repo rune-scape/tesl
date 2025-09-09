@@ -20,13 +20,14 @@ add_executable(tesl
 
 target_link_libraries(tesl PRIVATE fmt)
 target_link_libraries(tesl PRIVATE isptr)
-target_compile_options(tesl PRIVATE -fno-rtti -fno-exceptions -Werror=switch)
-target_link_options(tesl PRIVATE -fno-rtti -fno-exceptions -Werror=switch)
+target_link_options(tesl PRIVATE -Werror=switch)
 
-# maybe -ffast-math -static -static-libgcc -static-libstdc++ -nodefaultlibs -fsanitize=address -m32 idk
+if(WIN32)
+    target_link_options(tesl PRIVATE -static-libgcc -static-libstdc++)
+endif()
 
-if (TESL_PICO)
-    target_sources(tesl PUBLIC tesl_syscall_stub_getentropy.c)
+if(TESL_PICO)
+    target_sources(pico_stdlib PRIVATE tesl_syscall_stub_getentropy.c)
     target_link_libraries(tesl PUBLIC
         pico_stdlib
         #pico_printf
@@ -51,4 +52,4 @@ if (TESL_PICO)
 else()
     target_compile_options(tesl PRIVATE -flto)
     target_link_options(tesl PRIVATE -flto)
-endif ()
+endif()

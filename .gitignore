@@ -2,7 +2,8 @@
 .idea/
 .vscode/
 build/
-build-mc/
+build-pico/
+build-mingw/
 Drivers/
 
 # Prerequisites
