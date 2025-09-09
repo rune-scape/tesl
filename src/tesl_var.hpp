@@ -12,15 +12,18 @@ namespace tesl {
   };
 
   struct Variant {
-    char _storage[variant_storage_size] = {0};
-    static_assert(variant_storage_size >= sizeof(void *), "variant storage must be big enough to store a pointer!");
+    union Storage {
+      void * ptr = nullptr;
+      char data[variant_storage_size];
+    };
 
-    TypeRef _type = get_type_info_of<Null>();
+    Storage _storage;
+    TypeRef _type = get_builtin_type_info_of<Null>();
 
     TESL_ALWAYS_INLINE void * _get_ptr_to_storage() { return reinterpret_cast<void *>(&_storage); }
     TESL_ALWAYS_INLINE const void * _get_ptr_to_storage() const { return reinterpret_cast<const void *>(&_storage); }
-    TESL_ALWAYS_INLINE void *& _get_storage_as_ptr() { return *(reinterpret_cast<void **>(&_storage)); }
-    TESL_ALWAYS_INLINE const void * _get_storage_as_ptr() const { return *(reinterpret_cast<const void * const *>(&_storage)); }
+    TESL_ALWAYS_INLINE void * & _get_storage_as_ptr() { return _storage.ptr; }
+    TESL_ALWAYS_INLINE const void * const & _get_storage_as_ptr() const { return _storage.ptr; }
 
     TESL_ALWAYS_INLINE void * _get_ptr_to_data() {
       if (_type->size <= variant_storage_size) {
@@ -52,191 +55,46 @@ namespace tesl {
       return _type;
     }
 
-    TESL_ALWAYS_INLINE void clear() {
-      if (_type->size <= variant_storage_size) {
-        _type->deinit(_get_ptr_to_storage(), nullptr);
-      } else {
-        _type->delete_(_get_storage_as_ptr());
-      }
-      _type = get_type_info_of<Null>();
-    }
+    void clear();
+    operator VarRef();
+    operator VarRef() const;
 
-    operator VarRef() {
-      return {_get_ptr_to_data(), _type};
-    }
+    Variant & operator=(const VarRef & other);
+    Variant & operator=(const Variant & other);
+    Variant & operator=(Variant && other);
 
-    operator VarRef() const {
-      return {const_cast<void *>(_get_ptr_to_data()), _type};
-    }
-
-    Variant & operator=(const VarRef & other) {
-      // todo: maybe delay destructor
-      if (_type->size == other.type->size) {
-        void * data_ptr = _get_ptr_to_data();
-        _type->deinit(data_ptr, nullptr);
-        _type = other.type;
-      } else {
-        clear();
-        _type = other.type;
-        if (other.type->size > variant_storage_size) {
-          _get_storage_as_ptr() = other.type->allocate();
-        }
-      }
-
-      if (_type->size <= variant_storage_size) {
-        _type->copy(other.data, _get_ptr_to_storage());
-      } else {
-        _type->copy(other.data, _get_storage_as_ptr());
-      }
-      return *this;
-    }
-
-    Variant & operator=(const Variant & other) {
-      // todo: maybe delay destructor
-      if (_type->size == other._type->size) {
-        void * data_ptr = _get_ptr_to_data();
-        _type->deinit(data_ptr, nullptr);
-        _type = other._type;
-      } else {
-        clear();
-        _type = other._type;
-        if (other._type->size > variant_storage_size) {
-          _get_storage_as_ptr() = other._type->allocate();
-        }
-      }
-
-      if (_type->size <= variant_storage_size) {
-        _type->copy(const_cast<void *>(other._get_ptr_to_storage()), _get_ptr_to_storage());
-      } else {
-        _type->copy(const_cast<void *>(other._get_storage_as_ptr()), _get_storage_as_ptr());
-      }
-      return *this;
-    }
-
-    Variant & operator=(Variant && other) {
-      // todo: maybe delay destructor
-      if (_type->size == other._type->size) {
-        void * data_ptr = _get_ptr_to_data();
-        _type->deinit(data_ptr, nullptr);
-        _type = other._type;
-      } else {
-        clear();
-        _type = other._type;
-        if (other._type->size > variant_storage_size) {
-          _get_storage_as_ptr() = other._type->allocate();
-        }
-      }
-
-      if (_type->size <= variant_storage_size) {
-        _type->move(other._get_ptr_to_storage(), _get_ptr_to_storage());
-      } else {
-        _type->move(other._get_storage_as_ptr(), _get_storage_as_ptr());
-      }
-      return *this;
-    }
-
-    TESL_ALWAYS_INLINE Variant(const VarRef & other) { this->operator=(other); }
-    TESL_ALWAYS_INLINE Variant(const Variant & other) { this->operator=(other); }
-    TESL_ALWAYS_INLINE Variant(Variant && other) { this->operator=(MOV(other)); }
+    Variant(const VarRef & other);
+    Variant(const Variant & other);
+    Variant(Variant && other);
     TESL_ALWAYS_INLINE Variant() = default;
 
-    template<typename T>
-    Variant(T v) : _type(get_type_info_of<T>()) {
+    template<typename T, typename = std::enable_if_t<!std::is_same_v<remove_cvref_t<T>, Variant> > >
+    Variant(T && v) : _type(get_builtin_type_info_of<remove_cvref_t<T> >()) {
+      void * other_ptr = const_cast<void *>(reinterpret_cast<const void *>(&v));
       if (_type->size <= variant_storage_size) {
-        _type->init(nullptr, _get_ptr_to_storage());
-        _type->move((void *)&v, _get_ptr_to_storage());
+        void * self_ptr = _get_ptr_to_storage();
+        _type->init(self_ptr);
+        if constexpr (std::is_rvalue_reference_v<T>) {
+          _type->move(other_ptr, self_ptr);
+        } else {
+          _type->copy(other_ptr, self_ptr);
+        }
       } else {
-        _type->move((void *)&v, _get_storage_as_ptr() = _type->new_());
+        void * & self_ptr = _get_storage_as_ptr();
+        self_ptr = _type->new_();
+        if constexpr (std::is_rvalue_reference_v<T>) {
+          _type->move(other_ptr, self_ptr);
+        } else {
+          _type->copy(other_ptr, self_ptr);
+        }
       }
     }
 
-    ~Variant() {
-      clear();
-    }
+    ~Variant();
   };
 
-  /*namespace detail {
-    template<Type T>
-    struct type_of_impl { using type = typename type_of_impl<Type(T | TYPE_FLAG_CONSTANT)>::type *; };
-    template<>
-    struct type_of_impl<TYPE_NULL_VAL> { using type = void; };
-    template<>
-    struct type_of_impl<TYPE_FLOAT_VAL> { using type = FloatT; };
-    template<>
-    struct type_of_impl<TYPE_VEC2_VAL> { using type = Vec2; };
-    template<>
-    struct type_of_impl<TYPE_VEC3_VAL> { using type = Vec3; };
-    template<>
-    struct type_of_impl<TYPE_VEC4_VAL> { using type = Vec4; };
-    template<>
-    struct type_of_impl<TYPE_INT_VAL> { using type = IntT; };
-    template<>
-    struct type_of_impl<TYPE_MAT2_VAL> { using type = Mat2; };
-    template<>
-    struct type_of_impl<TYPE_MAT3_VAL> { using type = Mat3; };
-    template<>
-    struct type_of_impl<TYPE_MAT4_VAL> { using type = Mat4; };
-    template<>
-    struct type_of_impl<TYPE_STR_VAL> { using type = Str; };
-
-    template<>
-    struct type_of_impl<TYPE_FUNCTION> { using type = FnObj; };
-  } // namespace detail
-
-  template<Type T> using type_of = typename detail::type_of_impl<T>::type;
-
-  template<Type Ty> constexpr bool is_ref(Type type) { return !(type & TYPE_FLAG_CONSTANT); }
-  template<Type Ty> constexpr bool is_mat(Type type) { return type == TYPE_MAT2_VAL || type == TYPE_MAT3_VAL || type == TYPE_MAT4_VAL; }
-  template<Type Ty> constexpr bool is_vec(Type type) { return type == TYPE_VEC2_VAL || type == TYPE_VEC3_VAL || type == TYPE_VEC4_VAL; }
-
-  template<typename T>
-  T value_get(const ValueUnionT & val);
-  template<>
-  TESL_ALWAYS_INLINE void value_get<void>(const ValueUnionT & val) {}
-
-  template<Type Ty>
-  TESL_ALWAYS_INLINE type_of<Type(Ty | TYPE_FLAG_CONSTANT)> value_deref(const ValueUnionT & val);
-
-  template<typename T>
-  TESL_ALWAYS_INLINE constexpr void value_set(ValueUnionT & tev, const T & v);
-
-  template<typename T>
-  TESL_ALWAYS_INLINE constexpr TypedValueUnionT make_value(const T & v);
-
-#define MAKE_VALUE_IMPL(ty, member_name, ref_ty, ref_member_name)\
-  MAKE_VALUE_CONST_IMPL(ty, member_name)\
-  MAKE_VALUE_REF_IMPL(ref_ty, ref_member_name)
-#define MAKE_VALUE_CONST_IMPL(ty, member_name)\
-  template<> TESL_ALWAYS_INLINE constexpr type_of<ty> value_get<type_of<ty>>(const ValueUnionT &val) { return val.member_name; }\
-  template<> TESL_ALWAYS_INLINE constexpr type_of<ty> value_deref<ty>(const ValueUnionT &val) { return val.member_name; }\
-  template<> TESL_ALWAYS_INLINE constexpr void value_set<type_of<ty>>(ValueUnionT &tev, const type_of<ty> & v) { tev.member_name = v; }\
-  template<> TESL_ALWAYS_INLINE constexpr TypedValueUnionT make_value<type_of<ty>>(const type_of<ty> & v) { return {ValueUnionT{v}, ty}; }
-#define MAKE_VALUE_REF_IMPL(ref_ty, ref_member_name)\
-  template<> TESL_ALWAYS_INLINE constexpr type_of<ref_ty> value_get<type_of<ref_ty>>(const ValueUnionT &val) { return val.ref_member_name; }\
-  template<> TESL_ALWAYS_INLINE constexpr type_of<Type(ref_ty | TYPE_FLAG_CONSTANT)> value_deref<ref_ty>(const ValueUnionT &val) { return *val.ref_member_name; }\
-  template<> TESL_ALWAYS_INLINE constexpr void value_set<type_of<ref_ty>>(ValueUnionT &tev, const type_of<ref_ty> & v) { tev.ref_member_name = v; }\
-  template<> TESL_ALWAYS_INLINE constexpr TypedValueUnionT make_value<type_of<ref_ty>>(const type_of<ref_ty> & v) { return {ValueUnionT{v}, ref_ty}; }
-
-  MAKE_VALUE_IMPL(TYPE_INT_VAL, int_, TYPE_INT_REF, int_ref)
-  MAKE_VALUE_IMPL(TYPE_FLOAT_VAL, float_, TYPE_FLOAT_REF, float_ref)
-  MAKE_VALUE_IMPL(TYPE_VEC2_VAL, vec2, TYPE_VEC2_REF, vec2_ref)
-  MAKE_VALUE_IMPL(TYPE_VEC3_VAL, vec3, TYPE_VEC3_REF, vec3_ref)
-  MAKE_VALUE_IMPL(TYPE_VEC4_VAL, vec4, TYPE_VEC4_REF, vec4_ref)
-  MAKE_VALUE_IMPL(TYPE_MAT2_VAL, mat2, TYPE_MAT2_REF, mat2_ref)
-  MAKE_VALUE_IMPL(TYPE_MAT3_VAL, mat3, TYPE_MAT3_REF, mat3_ref)
-  MAKE_VALUE_IMPL(TYPE_MAT4_VAL, mat4, TYPE_MAT4_REF, mat4_ref)
-  MAKE_VALUE_IMPL(TYPE_STR_VAL, str, TYPE_STR_REF, str_ref)
-
-
-#undef MAKE_VALUE_IMPL*/
-
-  //void print(const Variant & value);
-
-  // many definitions, for robustness
-  /*TESL_ALWAYS_INLINE void print(const TypeInfo & type) { print(type.name); }
-  TESL_ALWAYS_INLINE void print(TypeInfo & type) { print(type.name); }
-  TESL_ALWAYS_INLINE void print(const TypeInfo * type) { print(type->name); }
-  TESL_ALWAYS_INLINE void print(TypeInfo * type) { print(type->name); }*/
+  template<> TypeRef make_type_info<Variant>();
+  template<> TypeRef get_builtin_type_info_of<Variant>();
 }
 
 template<typename CharT>

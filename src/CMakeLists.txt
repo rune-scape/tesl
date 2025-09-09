@@ -3,6 +3,7 @@ add_executable(tesl
     main.cpp
     tcolor.hpp tcolor.cpp
     tesl_common.hpp tesl_common.cpp
+    tesl_bootstrap.hpp tesl_bootstrap.cpp
     tesl_math.hpp tesl_math.cpp
     tesl_str.hpp tesl_str.cpp
     tesl_fn.hpp tesl_fn.cpp
@@ -14,6 +15,10 @@ add_executable(tesl
     tesl_ref.hpp
     tesl_type.hpp tesl_type.cpp
     tesl_hash.hpp tesl_hash.cpp
+    tesl_signature.hpp tesl_signature.cpp
+    tesl_operator.hpp tesl_operator.cpp
+    tesl_member.hpp tesl_member.cpp
+    tesl_symbol_table.hpp
     tesl_tokenizer.hpp tesl_tokenizer.cpp
     tesl_parser.hpp tesl_parser.cpp
 )

@@ -6,7 +6,7 @@
 
 namespace tesl::rules {
   struct ExprResult {
-    TypeRef type = get_type_info_of<Null>();
+    TypeRef type = get_builtin_type_info_of<Null>();
   };
   /*struct ExprResult {
     const TypeInfo * type;

@@ -28,9 +28,6 @@
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
 
-#define TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(type, name) \
-  template<> TypeRef get_type_info_of<type>();
-
 namespace tesl {
   struct Null {};
   constexpr Null null_value{};
@@ -108,28 +105,34 @@ namespace tesl {
 
   constexpr IntT variant_storage_size = sizeof(void *);
 
-  typedef void (* FnPtr)(void * context, void * args, void * ret);
-
-  struct FnObjBase {
-    FnPtr ptr = nullptr;
-    void * context = nullptr;
-
-    bool is_valid() const {
-      return ptr != nullptr;
-    }
-
-    void operator()(void * args, void * ret) const {
-      ptr(context, args, ret);
-    }
+  struct FnContext {
+    Env * env;
+    void * this_;
+    Variant * user_data;
   };
 
-  inline void empty_fn(void * context, void * args, void * ret) { }
+  typedef void (* FnPtrBare)(FnContext * context, void * args, void * ret);
+
+  inline void empty_fn(FnContext * context, void * args, void * ret) { }
 
   #define MOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)> &&>(__VA_ARGS__)
   #define FWD(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)
 
-  using TypeRef = Ref<const TypeInfo>;
-  template<typename T> TypeRef get_type_info_of();
+  struct GlobalSymbolIndex {
+    using IndexT = uint32_t;
+    static constexpr IndexT max_index = std::numeric_limits<IndexT>::max();
+    IndexT index = max_index;
+
+    constexpr bool is_valid() const { return index != max_index; }
+  };
+
+  struct LocalSymbolIndex {
+    using IndexT = uint16_t;
+    static constexpr IndexT max_index = std::numeric_limits<IndexT>::max();
+    IndexT index = max_index;
+
+    constexpr bool is_valid() const { return index != max_index; }
+  };
 
   template<typename T>
   inline void swap(T & a, T & b) {
@@ -182,6 +185,9 @@ namespace tesl {
   struct type_pack {};
 
   template<typename T>
+  using remove_cvref_t = std::remove_cv_t< std::remove_reference_t<T> >;
+
+  template<typename T>
   inline void memswap(T & a, T & b) {
     alignas(T) char tmp[sizeof(T)];
     memcpy(reinterpret_cast<void *>(tmp), reinterpret_cast<void *>(&a), sizeof(T));
@@ -194,4 +200,22 @@ namespace tesl {
   inline void print_error_source(int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end) {
     print_error_sourcev(stderr, line_num, line_start, error_start, error_point, error_end);
   }
+
+  using NameRef = Ref<Name>;
+  using SignatureRef = Ref<Signature>;
+  using TypeRef = Ref<const TypeInfo>;
+
+  template<typename T> TypeRef make_type_info();
+  template<typename T> TypeRef get_builtin_type_info_of();
+
+  template<> TypeRef make_type_info<Null>();
+  template<> TypeRef make_type_info<Bool>();
+  template<> TypeRef make_type_info<IntT>();
+  template<> TypeRef make_type_info<FloatT>();
+  template<> TypeRef make_type_info<TypeRef>();
+  template<> TypeRef get_builtin_type_info_of<Null>();
+  template<> TypeRef get_builtin_type_info_of<Bool>();
+  template<> TypeRef get_builtin_type_info_of<IntT>();
+  template<> TypeRef get_builtin_type_info_of<FloatT>();
+  template<> TypeRef get_builtin_type_info_of<TypeRef>();
 } // namespace tesl

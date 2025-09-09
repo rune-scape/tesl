@@ -1,18 +1,24 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_array.hpp"
-#include "tesl_type.hpp"
+#include "tesl_var.hpp"
 
 namespace tesl {
-  struct FnObj : public FnObjBase {
-    Array<TypeRef> return_types;
-    Array<TypeRef> param_types;
+  struct FnPtr {
+    FnPtrBare ptr = nullptr;
+    mutable Variant user_data;
+
+    bool is_valid() const {
+      return ptr != nullptr;
+    }
+
+    void operator()(FnContext * context, void * args, void * ret) const {
+      context->user_data = &user_data;
+      ptr(context, args, ret);
+    }
   };
 //lalalala i am the secret code demon ^w^ i am hiding in between your lines of code
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(FnObj, Fn)
-
-  namespace detail {
+  /*namespace detail {
     template<IntT ... I>
     using index_sequence = std::integer_sequence<IntT, I...>;
     template<IntT Size>
@@ -49,7 +55,7 @@ namespace tesl {
 #if __cpp_constexpr >= 202110L
     constexpr
 #endif
-    inline FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, ArrayView<TypeRef> param_types) {
+    inline FnObj make_function_raw(FnPtrBare fn, void * context, bool pure, TypeRef return_type, ArrayView<TypeRef> param_types) {
       FnObj ret;
       ret.ptr = fn;
       ret.context = context;
@@ -63,7 +69,7 @@ namespace tesl {
 #if __cpp_constexpr >= 202110L
     constexpr
 #endif
-    inline FnObj make_function_raw(FnPtr fn, void * context, bool pure, TypeRef return_type, const T (&param_types)[N]) {
+    inline FnObj make_function_raw(FnPtrBare fn, void * context, bool pure, TypeRef return_type, const T (&param_types)[N]) {
       return make_function_raw(fn, context, pure, return_type, {param_types, N});
     }
 
@@ -73,8 +79,8 @@ namespace tesl {
       constexpr
 #endif
       inline static FnObj call() {
-        TypeRef param_types[] = {get_type_info_of<Ps>()...};
-        return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, get_type_info_of<R>(), {param_types, sizeof...(Ps)});
+        TypeRef param_types[] = {get_builtin_type_info_of<Ps>()...};
+        return make_function_raw(function<Fn, R, Ps...>::call, nullptr, Pure, get_builtin_type_info_of<R>(), {param_types, sizeof...(Ps)});
       }
     };
 
@@ -106,5 +112,5 @@ namespace tesl {
 #endif
   inline FnObj make_pure_function() {
     return detail::make_function<Fn, true>::call(Fn);
-  }
+  }*/
 }

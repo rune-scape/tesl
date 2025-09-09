@@ -1,9 +1,95 @@
 #include "tesl_common.hpp"
 
+#include "tesl_bootstrap.hpp"
 #include "tesl_error.hpp"
+#include "tesl_operator.hpp"
+#include "tesl_type.hpp"
 #include <fmt/format.h>
 
 namespace tesl {
+  namespace detail {
+    static void raw_convert_float_to_int(FnContext * context, void * pArgs, void * pRet) {
+      struct Args {
+        IntT v;
+      };
+
+      Args * args = reinterpret_cast<Args *>(pArgs);
+      FloatT * ret = reinterpret_cast<FloatT *>(pRet);
+      *ret = (args->v);
+    }
+  }
+
+  template<>
+  TypeRef make_type_info<Null>() {
+    Ref<TypeInfo> ref = new_ref<TypeInfo>(
+      TESL_STRVIEW("Null"),
+      TESL_STRVIEW("Null"),
+      TESL_SIGNATURE_INDEX("->Null"),
+      0,
+      1,
+      FnPtrBare{empty_fn},
+      FnPtrBare{empty_fn},
+      FnPtrBare{empty_fn},
+      FnPtrBare{empty_fn}
+    );
+    return ref;
+  }
+
+  template<>
+  TypeRef get_builtin_type_info_of<Null>() {
+    static TypeRef ret = make_type_info<Null>();
+    return ret;
+  }
+
+  template<>
+  TypeRef make_type_info<Bool>() {
+    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(Bool, "Bool");
+    return ref;
+  }
+
+  template<>
+  TypeRef get_builtin_type_info_of<Bool>() {
+    static TypeRef ret = make_type_info<Bool>();
+    return ret;
+  }
+
+  template<>
+  TypeRef make_type_info<IntT>() {
+    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(IntT, "Int");
+    return ref;
+  }
+
+  template<>
+  TypeRef get_builtin_type_info_of<IntT>() {
+    static TypeRef ret = make_type_info<IntT>();
+    return ret;
+  }
+
+  template<>
+  TypeRef make_type_info<FloatT>() {
+    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(FloatT, "Float");
+    TESL_BIND_BASIC_BARE(ref, detail::raw_convert_float_to_int, "->Int");
+    return ref;
+  }
+
+  template<>
+  TypeRef get_builtin_type_info_of<FloatT>() {
+    static TypeRef ret = make_type_info<FloatT>();
+    return ret;
+  }
+
+  template<>
+  TypeRef make_type_info<TypeRef>() {
+    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(TypeRef, "Type");
+    return ref;
+  }
+
+  template<>
+  TypeRef get_builtin_type_info_of<TypeRef>() {
+    static TypeRef ret = make_type_info<TypeRef>();
+    return ret;
+  }
+
   void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * start, const char * point, const char * const end) {
     TESL_ASSERT(start <= point && point <= end);
     const char * line_end = line_start;

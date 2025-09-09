@@ -163,12 +163,18 @@ namespace tesl {
     return h;
   }
 
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Vec2, Vec2)
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Vec3, Vec3)
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Vec4, Vec4)
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Mat2, Mat2)
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Mat3, Mat3)
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Mat4, Mat4)
+  template<> TypeRef make_type_info<Vec2>();
+  template<> TypeRef make_type_info<Vec3>();
+  template<> TypeRef make_type_info<Vec4>();
+  template<> TypeRef make_type_info<Mat2>();
+  template<> TypeRef make_type_info<Mat3>();
+  template<> TypeRef make_type_info<Mat4>();
+  template<> TypeRef get_builtin_type_info_of<Vec2>();
+  template<> TypeRef get_builtin_type_info_of<Vec3>();
+  template<> TypeRef get_builtin_type_info_of<Vec4>();
+  template<> TypeRef get_builtin_type_info_of<Mat2>();
+  template<> TypeRef get_builtin_type_info_of<Mat3>();
+  template<> TypeRef get_builtin_type_info_of<Mat4>();
 }
 
 template<typename CharT>

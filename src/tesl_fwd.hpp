@@ -13,7 +13,7 @@ namespace tesl {
   struct Env;
 
   // tesl_fn.hpp
-  struct FnObj;
+  struct FnPtr;
 
   // tesl_math.hpp
   struct Vec2;
@@ -23,8 +23,14 @@ namespace tesl {
   struct Mat3;
   struct Mat4;
 
+  // tesl_member.hpp
+  struct Member;
+
   // tesl_module.hpp
   struct Module;
+
+  // tesl_operator.hpp
+  struct Operator;
 
   // tesl_parser.hpp
   struct Parser;
@@ -36,9 +42,14 @@ namespace tesl {
   // tesl_type.hpp
   struct TypeInfo;
 
-  // tesl_symbol.hpp
-  struct Symbol;
-  template<typename T> struct SymbolTable;
+  // tesl_signature.hpp
+  struct Signature;
+
+  // tesl_name.hpp
+  struct Name;
+
+  // tesl_symbol_table.hpp
+  template<typename ValueT> struct SymbolTable;
 
   // tesl_var.hpp
   struct VarRef;

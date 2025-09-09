@@ -37,7 +37,9 @@ namespace tesl {
     Token & operator=(const Token &) = default;
     Token & operator=(Token &&) = default;
 
-    Token(Kind k, CharStrView s, Variant l = {}) : kind(k), span(s), literal(l) {}
+    template<typename T>
+    Token(Kind k, CharStrView s, T && l) : kind(k), span(s), literal(FWD(l)) {}
+    Token(Kind k, CharStrView s) : kind(k), span(s) {}
     Token(const Token &) = default;
     Token(Token &&) = default;
     ~Token() = default;

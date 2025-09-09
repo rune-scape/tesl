@@ -21,5 +21,6 @@ namespace tesl {
     return hash(static_cast<BasicStrViewT<T>>(str));
   }
 
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(Str, Str)
+  template<> TypeRef make_type_info<Str>();
+  template<> TypeRef get_builtin_type_info_of<Str>();
 }

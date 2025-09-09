@@ -4,9 +4,5 @@
 #include "tesl_type.hpp"
 
 namespace tesl {
-  struct DynamicArray {
-
-  };
-
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(DynamicArray, Array);
+  struct DynamicArray {};
 }
