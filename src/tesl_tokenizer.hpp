@@ -54,12 +54,18 @@ namespace tesl {
     const char * line_start = nullptr;
     IntT line_num = 1;
     bool has_error = false;
+    bool strict_parsing = false;
+
+    void _skip_to_next_line();
 
     char32_t _parse_octal_char();
     char32_t _parse_hex_char(IntT len);
     Token _tokenize_string_literal();
+
     Token _tokenize_number_literal();
+
     Token _tokenize_identifier();
+
     Token next_token();
     void reset();
 

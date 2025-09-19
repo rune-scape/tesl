@@ -5,45 +5,112 @@
 #include <fmt/format.h>
 
 namespace tesl {
-  constexpr bool is_digit(char c) {
-	  return static_cast<UIntT>(c - '0') < 10;
+  template<typename CharT>
+  constexpr bool is_digit(CharT c) {
+	  return static_cast<UIntT>(c - '0') < 10u;
   }
 
-  constexpr bool is_octal_digit(char c) {
-	  return static_cast<UIntT>(c - '0') < 8;
+  template<typename CharT>
+  constexpr bool is_octal_digit(CharT c) {
+	  return static_cast<UIntT>(c - '0') < 8u;
   }
 
-  constexpr bool is_hex_digit(char c) {
-	  return is_digit(c) || static_cast<UIntT>((c | 32) - 'a') < 6;
+  template<typename CharT>
+  constexpr bool is_hex_digit(CharT c) {
+	  return is_digit(c) || static_cast<UIntT>((c | 32) - 'a') < 6u;
   }
 
-  constexpr bool is_alpha(char c) {
-	  return static_cast<UIntT>((c | 32) - 'a') < 26;
+  template<typename CharT>
+  constexpr bool is_alpha(CharT c) {
+	  return static_cast<UIntT>((c | 32u) - 'a') < 26u;
   }
 
-  constexpr bool is_valid_id_starter(char c) {
+  template<typename CharT>
+  constexpr bool is_valid_id_starter(CharT c) {
     return is_alpha(c) || c == '_';
   }
 
-  constexpr bool is_valid_id_meat(char c) {
-    return is_digit(c) || is_alpha(c) || c == '_';
+  template<typename CharT>
+  constexpr bool is_valid_id_meat(CharT c) {
+    return is_digit(c) || is_valid_id_starter(c);
   }
 
-  static bool skip_newline(const char * & c) {
-    if (c[0] == '\n') {
-      c++;
-      return true;
-    } else if (c[0] == '\r') {
-      if (c[1] == '\n') {
-        c += 2;
-        return true;
-      } else {
-        c++;
-        return true;
-      }
-    }
-
-    return false;
+  // negative return value means it didnt parse
+  // -2 means it was one of [a-zA-Z0-9_] (means it wasn't identifier meat)
+  template<typename CharT>
+  constexpr IntT char_to_number(CharT c) {
+  switch (c) {
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7':
+    case '8':
+    case '9':
+      return c - '0';
+    case 'a':
+    case 'b':
+    case 'c':
+    case 'd':
+    case 'e':
+    case 'f':
+    case 'g':
+    case 'h':
+    case 'i':
+    case 'j':
+    case 'k':
+    case 'l':
+    case 'm':
+    case 'n':
+    case 'o':
+    case 'p':
+    case 'q':
+    case 'r':
+    case 's':
+    case 't':
+    case 'u':
+    case 'v':
+    case 'w':
+    case 'x':
+    case 'y':
+    case 'z':
+      return 10 + c - 'a';
+    case 'A':
+    case 'B':
+    case 'C':
+    case 'D':
+    case 'E':
+    case 'F':
+    case 'G':
+    case 'H':
+    case 'I':
+    case 'J':
+    case 'K':
+    case 'L':
+    case 'M':
+    case 'N':
+    case 'O':
+    case 'P':
+    case 'Q':
+    case 'R':
+    case 'S':
+    case 'T':
+    case 'U':
+    case 'V':
+    case 'W':
+    case 'X':
+    case 'Y':
+    case 'Z':
+      return 10 + c - 'A';
+    case '_':
+      return -1;
+    default:
+      return -2;
+  }
+  TESL_UNREACHABLE;
   }
 
 #define tokenizer_error(...) \
@@ -57,6 +124,23 @@ namespace tesl {
     has_error = true; \
     TESL_ERROR_PRINT_BASE("internal tokenizer error", __VA_ARGS__); \
   } while(false)
+
+  void Tokenizer::_skip_to_next_line() {
+    for (; input_it != input.end(); ++input_it) {
+      switch (input_it[0]) {
+        case '\r': {
+          input_it++;
+          if (input_it != input.end() && input_it[0] == '\n') {
+            input_it++;
+          }
+          return;
+        } break;
+        case '\n':
+          input_it++;
+          return;
+      }
+    }
+  }
 
   Token Tokenizer::_tokenize_number_literal() {
 #ifdef TESL_DEBUG_TOKENIZER
@@ -119,41 +203,10 @@ namespace tesl {
     const char * start = input_it;
     char32_t result = 0;
     for (IntT i = 0; i < len; ++i) {
-      char c = *input_it;
-      IntT n = 0;
-      switch (c) {
-        case '0':
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          n = c - '0';
-          break;
-        case 'a':
-        case 'b':
-        case 'c':
-        case 'd':
-        case 'e':
-        case 'f':
-          n = 10 + c - 'a';
-          break;
-        case 'A':
-        case 'B':
-        case 'C':
-        case 'D':
-        case 'E':
-        case 'F':
-          n = 10 + c - 'A';
-          break;
-        default:
-          tokenizer_error("invalid hex number!");
-          print_error_source(line_num, line_start, start, input_it, start + len);
-          return U'\0';
+      IntT n = char_to_number(*input_it);
+      if (n < 0 || n >= 16) {
+        tokenizer_error("invalid hex number!");
+        print_error_source(line_num, line_start, start, input_it, start + len);
       }
       result <<= 4;
       result |= n;
@@ -291,9 +344,9 @@ namespace tesl {
   Token Tokenizer::next_token() {
     Token token;
 
-    bool new_line = input_it == input;
+    //bool new_line = input_it == input;
     token.span = {input_it, 0};
-    do {
+    while (true) {
       input_it = token.span.end();
       token = {};
       token.span = {input_it, 0};
@@ -302,7 +355,7 @@ namespace tesl {
         case '\0':
           // end of input
           token.kind = Token::END;
-          break;
+          goto token_found;
         case '0':
         case '1':
         case '2':
@@ -315,21 +368,21 @@ namespace tesl {
         case '9':
           // number literal token
           token = _tokenize_number_literal();
-          break;
+          goto token_found;
         case '"':
           // string literal token
           token = _tokenize_string_literal();
-          break;
-        case '#': {
-          while (!skip_newline(input_it)) {
-            input_it++;
-          }
-          CharStrView::size_type len = input_it - token.span.begin();
-          token.span = {token.span.begin(), len};
-          new_line = true;
+          goto token_found;
+        case '#':
+          _skip_to_next_line();
+          token.span = {token.span.begin(), static_cast<CharStrView::size_type>(input_it - token.span.begin())};
+          //new_line = true;
           line_num++;
           line_start = token.span.end();
-        } break;
+          if (strict_parsing) {
+            break;
+          }
+          continue;
         case '\r':
           if (token.span.end()[1] == '\n') {
             extend_span(token.span);
@@ -337,43 +390,46 @@ namespace tesl {
           // fallthrough
         case '\n':
           extend_span(token.span);
-          new_line = true;
+          //new_line = true;
           line_num++;
           line_start = token.span.end();
-          break;
+          if (strict_parsing) {
+            break;
+          }
+          continue;
         case ' ':
         case '\t':
           extend_span(token.span);
+          if (strict_parsing) {
+            break;
+          }
+          continue;
+        default:
           break;
-        default: {
-          tokenizer_error("unrecognised character: {0:?}", input_it[0]);
-          print_error_source(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
-          extend_span(token.span);
-        } break;
 
 #define TESL_TOKEN_SYMBOL_DEF(str, name) \
   if (match_symbol(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
     token.kind = Token::name; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
-    break; \
+    goto token_found; \
   }
 #define TESL_TOKEN_KEYWORD_DEF(str, name) \
   if (match_keyword(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
     token.kind = Token::name; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
-    break; \
+    goto token_found; \
   }
 #define TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value) \
   if (match_keyword(&input_it[1], &str[1], sizeof(str)-1 - 1)) { \
     token.kind = Token::LITERAL; \
     token.literal = value; \
     token.span = {token.span.begin(), sizeof(str)-1}; \
-    break; \
+    goto token_found; \
   }
 #define TESL_TOKEN_DECIMAL_POINT \
   if (is_digit(input_it[1])) { \
     token = _tokenize_number_literal(); \
-    break; \
+    goto token_found; \
   }
 #define TESL_TOKEN_GROUP(c) \
   case c: {
@@ -383,14 +439,16 @@ namespace tesl {
 
       }
 
-      if (token.kind != Token::NONE) {
-        break;
-      }
-
       // identifier token
       if (is_valid_id_starter(input_it[0])) {
         token = _tokenize_identifier();
-        break;
+        goto token_found;
+      }
+
+      tokenizer_error("unrecognised character: {0:?}", input_it[0]);
+      print_error_source(line_num, line_start, token.span.data(), token.span.data(), token.span.data() + 1);
+      if (token.span.size() < 1) {
+        extend_span(token.span);
       }
 
 #ifdef TESL_DEBUG_TOKENIZER
@@ -404,8 +462,9 @@ namespace tesl {
         extend_span(token.span);
       }
 #endif
-    } while (true);
+    }
 
+  token_found:
 #ifdef TESL_DEBUG_TOKENIZER
     if (token.span.end() < input_it) {
       internal_tokenizer_error("end of token is before current input! (char value: {:#04x})", token.span[0]);
