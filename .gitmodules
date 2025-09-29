@@ -3,4 +3,4 @@
 	url = ./intrusive_shared_ptr/
 [submodule "fmt"]
 	path = fmt
-	url = ./fmt
+	url = ./fmt/
