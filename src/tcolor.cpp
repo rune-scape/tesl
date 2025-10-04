@@ -1,6 +1,7 @@
 // taken from https://github.com/agauniyal/rang
 
 #include "tcolor.hpp"
+#include <fmt/format.h>
 
 #if defined(__unix__) || defined(__unix) || defined(__linux__)
 #define TCOLOR_OS_LINUX
@@ -73,7 +74,7 @@ namespace detail {
     }
 
     void setColorAnsi(FILE *f, int value) {
-        fprintf(f, "\033[%dm", value);
+        fmt::print(f, "\033[{}m", value);
     }
 
 #ifdef TCOLOR_OS_WIN
