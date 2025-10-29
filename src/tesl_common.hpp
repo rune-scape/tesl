@@ -8,8 +8,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <source_location>
 #include <string_view>
 #include <type_traits>
+#include <fmt/fwd.h>
 #include "tesl_fwd.hpp"
 #include "tcolor.hpp"
 
@@ -17,6 +19,7 @@
 #define TESL_USE_64_BIT_NUMBERS
 
 #define TESL_DEBUG_TOKENIZER
+#define TESL_DEBUG_GRAMMAR
 #define TESL_DEBUG_PARSER
 #define TESL_DEBUG_VALUE
 #define TESL_DEBUG_COMPILE
@@ -28,6 +31,60 @@
 
 #define TESL_ALWAYS_INLINE inline __attribute__((always_inline))
 
+#define TESL_CONSTEVAL(v) []() { constexpr auto ret = v; return ret; }()
+
+#define TESL_EMPTY_STATEMENT do {} while (false)
+
+#define TESL_ERROR_PRINT_MSG_BASE(prefix, ...) \
+  ::tesl::_log_print_prefix_impl(stderr, ::tcolor::fg::red, prefix); \
+  ::tesl::_log_print_msg_impl(stderr, ::tcolor::fg::red, __VA_ARGS__); \
+  ::tesl::_log_print_source_location_impl(stderr, ::std::source_location::current());
+
+#define TESL_WARN_PRINT_MSG_BASE(prefix, ...) \
+  ::tesl::_log_print_prefix_impl(stderr, ::tcolor::fg::yellow, prefix); \
+  ::tesl::_log_print_msg_impl(stderr, ::tcolor::fg::yellow, __VA_ARGS__); \
+  ::tesl::_log_print_source_location_impl(stderr, ::std::source_location::current());
+
+#define TESL_INFO_PRINT_MSG_BASE(prefix, ...) \
+  ::tesl::_log_print_prefix_impl(stderr, ::tcolor::fg::white, prefix); \
+  ::tesl::_log_print_msg_impl(stderr, ::tcolor::fg::white, __VA_ARGS__); \
+
+#define TESL_FAIL_MSG_BASE(prefix, action, ...) \
+  do { \
+    TESL_ERROR_PRINT_MSG_BASE(prefix, __VA_ARGS__); \
+    action; \
+  } while (false)
+
+#define TESL_FAIL_COND_MSG_BASE(prefix, cond, action, ...) \
+  if (cond) [[unlikely]] { \
+    TESL_FAIL_MSG_BASE(prefix, action, __VA_ARGS__); \
+  } else do {} while (false)
+
+#define TESL_FAIL_MSG(action, ...) \
+  TESL_FAIL_MSG_BASE("error", action, __VA_ARGS__)
+
+#define TESL_FAIL_COND_MSG(cond, action, ...) \
+  TESL_FAIL_COND_MSG_BASE("error", cond, action, __VA_ARGS__)
+
+#define TESL_FAIL_COND(cond, action) \
+  TESL_FAIL_COND_MSG(cond, action, "'" #cond "' is true")
+
+#ifndef NDEBUG
+#define TESL_ASSERT_MSG(cond, ...) \
+  TESL_FAIL_COND_MSG_BASE("assertion failed", !(cond), abort(), __VA_ARGS__)
+#define TESL_ASSERT(cond) \
+  TESL_FAIL_COND_MSG_BASE("assertion failed", !(cond), std::abort(), "'" #cond "' is false")
+#define TESL_UNREACHABLE \
+  do { \
+    TESL_FAIL_MSG(abort(), "unreachable code"); \
+    __builtin_unreachable(); \
+  } while (false)
+#else
+#define TESL_ASSERT_MSG(cond, ...) TESL_EMPTY_STATEMENT
+#define TESL_ASSERT(cond) TESL_EMPTY_STATEMENT
+#define TESL_UNREACHABLE __builtin_unreachable()
+#endif
+
 namespace tesl {
   struct Null {};
   constexpr Null null_value{};
@@ -36,23 +93,30 @@ namespace tesl {
 
 #ifdef TESL_USE_64_BIT_NUMBERS
   using FloatT = double;
-  using IntT = int64_t;
-  using UIntT = uint64_t;
+  using IntT = std::int64_t;
+  using UIntT = std::uint64_t;
 #else
   using FloatT = float;
-  using IntT = int32_t;
-  using UIntT = uint32_t;
+  using IntT = std::int32_t;
+  using UIntT = std::uint32_t;
 #endif
+
+  using SizeT = std::size_t;
+
+  struct WidePtr {
+    void * ptr;
+    SizeT size;
+  };
 
   template<typename T>
   struct ArrayView {
     T * _ptr = nullptr;
-    T * _end = _ptr;
+    std::size_t _size = 0;
 
     TESL_ALWAYS_INLINE constexpr const T * data() const { return _ptr; }
     TESL_ALWAYS_INLINE constexpr const T * begin() const { return _ptr; }
-    TESL_ALWAYS_INLINE constexpr const T * end() const { return _end; }
-    TESL_ALWAYS_INLINE constexpr IntT size() const { return _end - _ptr; }
+    TESL_ALWAYS_INLINE constexpr const T * end() const { return _ptr + _size; }
+    TESL_ALWAYS_INLINE constexpr IntT size() const { return _size; }
 
     TESL_ALWAYS_INLINE constexpr T & operator[](IntT i) { return _ptr[i]; }
     TESL_ALWAYS_INLINE constexpr const T & operator[](IntT i) const { return _ptr[i]; }
@@ -62,7 +126,9 @@ namespace tesl {
     TESL_ALWAYS_INLINE constexpr ArrayView(const ArrayView &) = default;
     TESL_ALWAYS_INLINE constexpr ArrayView(ArrayView &&) = default;
 
-    TESL_ALWAYS_INLINE constexpr ArrayView(T * data, IntT size) : _ptr(data), _end(_ptr + size) {}
+    template<size_t Size>
+    TESL_ALWAYS_INLINE constexpr ArrayView(T (& data)[Size]) : _ptr(data), _size(Size) {}
+    TESL_ALWAYS_INLINE constexpr ArrayView(T * data, IntT size) : _ptr(data), _size(size) {}
     TESL_ALWAYS_INLINE constexpr ArrayView() {}
   };
 
@@ -86,7 +152,6 @@ namespace tesl {
   #define TESL_STR(str) str
 #endif
 
-
   template<typename CharT>
   using BasicStrViewT = std::basic_string_view<CharT>;
 
@@ -105,37 +170,15 @@ namespace tesl {
 
   constexpr IntT variant_storage_size = sizeof(void *);
 
-  struct FnContext {
-    Env * env;
-    void * this_;
-    Variant * user_data;
-  };
+  typedef void (* FnPtrBare)(void * this_, void * args, void * ret);
 
-  typedef void (* FnPtrBare)(FnContext * context, void * args, void * ret);
-
-  inline void empty_fn(FnContext * context, void * args, void * ret) { }
+  inline void empty_fn(void * this_, void * args, void * ret) { }
 
   #define MOV(...) static_cast<std::remove_reference_t<decltype(__VA_ARGS__)> &&>(__VA_ARGS__)
   #define FWD(...) static_cast<decltype(__VA_ARGS__) &&>(__VA_ARGS__)
 
-  struct GlobalSymbolIndex {
-    using IndexT = uint32_t;
-    static constexpr IndexT max_index = std::numeric_limits<IndexT>::max();
-    IndexT index = max_index;
-
-    constexpr bool is_valid() const { return index != max_index; }
-  };
-
-  struct LocalSymbolIndex {
-    using IndexT = uint16_t;
-    static constexpr IndexT max_index = std::numeric_limits<IndexT>::max();
-    IndexT index = max_index;
-
-    constexpr bool is_valid() const { return index != max_index; }
-  };
-
   template<typename T>
-  inline void swap(T & a, T & b) {
+  inline void swap(T & a, T & b) {using std::swap;
     T c(MOV(a));
     a = MOV(b);
     b = MOV(c);
@@ -166,15 +209,6 @@ namespace tesl {
       UIntT i;
     } u;
 
-    // Normalize +/- 0.0 and NaN values so they hash the same.
-    if (f == 0.0f) {
-      u.f = 0.0f;
-    } else if (std::isnan(f)) {
-      u.f = NAN;
-    } else {
-      u.f = f;
-    }
-
     return u.i;
   }
 
@@ -185,14 +219,36 @@ namespace tesl {
   struct type_pack {};
 
   template<typename T>
-  using remove_cvref_t = std::remove_cv_t< std::remove_reference_t<T> >;
-
-  template<typename T>
   inline void memswap(T & a, T & b) {
     alignas(T) char tmp[sizeof(T)];
     memcpy(reinterpret_cast<void *>(tmp), reinterpret_cast<void *>(&a), sizeof(T));
     memcpy(reinterpret_cast<void *>(&a), reinterpret_cast<void *>(&b), sizeof(T));
     memcpy(reinterpret_cast<void *>(&b), reinterpret_cast<void *>(tmp), sizeof(T));
+  }
+
+  void print(std::FILE * f, StrView str);
+
+  inline void print(CharStrView str) { print(stdout, str); }
+
+  inline void println(std::FILE * f, CharStrView str) {
+    print(f, str);
+    print(f, "\n");
+  }
+
+  inline void println(CharStrView str) { println(stdout, str); }
+
+  void _log_print_prefix_impl(FILE * f, tcolor::fg col, const char * prefix);
+  void _log_print_msg_impl(FILE * f, tcolor::fg col, const char * msg);
+  void _log_print_source_location_impl(FILE * f, const std::source_location & loc);
+
+  template<typename T, typename = void, typename ... Args>
+  struct _log_print_msg_include_error_disabler {
+    using type = T;
+  };
+
+  template<typename ... T>
+  void _log_print_msg_impl(FILE * f, tcolor::fg col, typename _log_print_msg_include_error_disabler<const char *, void, T...>::type msg, T && ...) {
+    static_assert(false, "you may want to include 'tesl_fmt.hpp' to use formatted error messages");
   }
 
   void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * error_start, const char * error_point, const char * error_end);
@@ -201,21 +257,11 @@ namespace tesl {
     print_error_sourcev(stderr, line_num, line_start, error_start, error_point, error_end);
   }
 
-  using NameRef = Ref<Name>;
-  using SignatureRef = Ref<Signature>;
-  using TypeRef = Ref<const TypeInfo>;
+  template<typename T> void bind_type_info(TypeInfo & type);
 
-  template<typename T> TypeRef make_type_info();
-  template<typename T> TypeRef get_builtin_type_info_of();
-
-  template<> TypeRef make_type_info<Null>();
-  template<> TypeRef make_type_info<Bool>();
-  template<> TypeRef make_type_info<IntT>();
-  template<> TypeRef make_type_info<FloatT>();
-  template<> TypeRef make_type_info<TypeRef>();
-  template<> TypeRef get_builtin_type_info_of<Null>();
-  template<> TypeRef get_builtin_type_info_of<Bool>();
-  template<> TypeRef get_builtin_type_info_of<IntT>();
-  template<> TypeRef get_builtin_type_info_of<FloatT>();
-  template<> TypeRef get_builtin_type_info_of<TypeRef>();
-} // namespace tesl
+  template<> void bind_type_info<Null>(TypeInfo & type);
+  template<> void bind_type_info<Bool>(TypeInfo & type);
+  template<> void bind_type_info<IntT>(TypeInfo & type);
+  template<> void bind_type_info<FloatT>(TypeInfo & type);
+  template<> void bind_type_info<Type>(TypeInfo & type);
+}

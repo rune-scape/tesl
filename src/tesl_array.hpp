@@ -332,9 +332,9 @@ namespace tesl {
     TESL_ALWAYS_INLINE constexpr ~Array() { clear(); }
   };*/
 
-  template<typename T, typename Alloc = std::allocator<T> >
-  struct Array : public std::vector<T, Alloc> {
-    using base = std::vector<T, Alloc>;
+  template<typename T, typename AllocT>
+  struct Array : public std::vector<T, AllocT> {
+    using base = std::vector<T, AllocT>;
     using base::base;
 
     template<typename VT>
@@ -358,7 +358,7 @@ namespace tesl {
       IntT s = static_cast<IntT>(base::size());
       IntT buffer_s = buffer.size();
       base::reserve(s + buffer_s);
-      for (IntT i = s, j = 0; j < buffer_s; ++i, ++j) {
+      for (IntT j = 0; j < buffer_s; ++j) {
         base::push_back(buffer[j]);
       }
       return *this;
@@ -368,7 +368,7 @@ namespace tesl {
       IntT s = static_cast<IntT>(base::size());
       IntT buffer_s = buffer.size();
       base::reserve(s + buffer_s);
-      for (IntT i = s, j = 0; j < buffer_s; ++i, ++j) {
+      for (IntT j = 0; j < buffer_s; ++j) {
         base::push_back(buffer[j]);
       }
       return *this;

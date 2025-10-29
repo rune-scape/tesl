@@ -2,7 +2,6 @@
 
 #include "tesl_common.hpp"
 #include "tesl_hash.hpp"
-#include <fmt/fwd.h>
 
 namespace tesl {
   namespace constants {
@@ -20,6 +19,8 @@ namespace tesl {
     constexpr FloatT root_2 = 1.414213562373095048801688724209698078569671875376948073;
     constexpr FloatT inv_root_2 = 0.707106781186547524401;
     constexpr FloatT euler = 0.577215664901532860606512090082402431042159335939923598805;
+    constexpr FloatT inf = INFINITY;
+    constexpr FloatT nan = NAN;
   }
 
   struct Vec2 {
@@ -163,22 +164,16 @@ namespace tesl {
     return h;
   }
 
-  template<> TypeRef make_type_info<Vec2>();
-  template<> TypeRef make_type_info<Vec3>();
-  template<> TypeRef make_type_info<Vec4>();
-  template<> TypeRef make_type_info<Mat2>();
-  template<> TypeRef make_type_info<Mat3>();
-  template<> TypeRef make_type_info<Mat4>();
-  template<> TypeRef get_builtin_type_info_of<Vec2>();
-  template<> TypeRef get_builtin_type_info_of<Vec3>();
-  template<> TypeRef get_builtin_type_info_of<Vec4>();
-  template<> TypeRef get_builtin_type_info_of<Mat2>();
-  template<> TypeRef get_builtin_type_info_of<Mat3>();
-  template<> TypeRef get_builtin_type_info_of<Mat4>();
+  template<> void bind_type_info<Vec2>(TypeInfo & type);
+  template<> void bind_type_info<Vec3>(TypeInfo & type);
+  template<> void bind_type_info<Vec4>(TypeInfo & type);
+  template<> void bind_type_info<Mat2>(TypeInfo & type);
+  template<> void bind_type_info<Mat3>(TypeInfo & type);
+  template<> void bind_type_info<Mat4>(TypeInfo & type);
 }
 
-template<typename CharT>
-class fmt::formatter<tesl::Vec2, CharT> {
+template<>
+class fmt::formatter<tesl::Vec2, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Vec2 & v, Context & ctx) const {
@@ -186,8 +181,8 @@ public:
   }
 };
 
-template<typename CharT>
-class fmt::formatter<tesl::Vec3, CharT> {
+template<>
+class fmt::formatter<tesl::Vec3, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Vec3 & v, Context & ctx) const {
@@ -195,8 +190,8 @@ public:
   }
 };
 
-template<typename CharT>
-class fmt::formatter<tesl::Vec4, CharT> {
+template<>
+class fmt::formatter<tesl::Vec4, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Vec4 & v, Context & ctx) const {
@@ -204,8 +199,8 @@ public:
   }
 };
 
-template<typename CharT>
-class fmt::formatter<tesl::Mat2, CharT> {
+template<>
+class fmt::formatter<tesl::Mat2, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Mat2 & m, Context & ctx) const {
@@ -213,8 +208,8 @@ public:
   }
 };
 
-template<typename CharT>
-class fmt::formatter<tesl::Mat3, CharT> {
+template<>
+class fmt::formatter<tesl::Mat3, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Mat3 & m, Context & ctx) const {
@@ -222,8 +217,8 @@ public:
   }
 };
 
-template<typename CharT>
-class fmt::formatter<tesl::Mat4, CharT> {
+template<>
+class fmt::formatter<tesl::Mat4, tesl::CommonCharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
   template<typename Context> constexpr auto format(const tesl::Mat4 & m, Context & ctx) const {

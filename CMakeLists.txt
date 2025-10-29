@@ -1,18 +1,24 @@
 cmake_minimum_required(VERSION 3.16)
 
 set(TESL_PICO OFF CACHE BOOL "target pico-sdk")
+set(TESL_TESTS ON CACHE BOOL "build tests")
+
+if(TESL_TESTS)
+    enable_testing()
+endif()
 
 if(TESL_PICO)
     include(pico_sdk_import.cmake)
-endif()
-
-if (NOT TESL_PICO)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_C_FLAGS}")
+else ()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color")
 endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE_INIT "-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -ffile-prefix-map=${CMAKE_SOURCE_DIR}/=")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -fno-exceptions")
-set(CMAKE_CXX_STANDARD 17)
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -nodefaultlibs -static-libstdc++")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftime-report")
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -38,4 +44,7 @@ target_compile_definitions(fmt PUBLIC FMT_USE_LOCALE=0 FMT_OPTIMIZE_SIZE=2 FMT_B
 
 add_subdirectory(intrusive_shared_ptr)
 
+add_subdirectory(mio)
+
 add_subdirectory(src)
+add_subdirectory(test)

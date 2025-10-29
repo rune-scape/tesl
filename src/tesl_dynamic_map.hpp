@@ -7,6 +7,4 @@ namespace tesl {
   struct DynamicMap {
     
   };
-
-  TESL_DECLARE_BUILTIN_TYPE_INFO_GETTER(DynamicMap, Map);
 }

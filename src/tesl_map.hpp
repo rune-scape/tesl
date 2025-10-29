@@ -4,10 +4,16 @@
 #include "tesl_hash.hpp"
 #include "tesl_type.hpp"
 #include "hash_table8.hpp"
-#include <fmt/fwd.h>
 
 namespace tesl {
   namespace detail {
+    struct MapHasher {
+      template<typename T>
+      HashT operator()(T && v) const {
+        return ::tesl::hash(FWD(v));
+      }
+    };
+
     struct MapCompareEqual {
       template<typename LhsT, typename RhsT>
       bool operator()(LhsT && lhs, RhsT && rhs) const {
@@ -15,17 +21,11 @@ namespace tesl {
       }
     };
 
-    struct MapHasher {
-      template<typename T>
-      uint64_t operator()(T && v) const {
-        return tesl::hash(FWD(v));
-      }
-    };
   }
 
-  template<typename KeyT, typename ValueT>
-  struct Map : public ::emhash8::HashMap<KeyT, ValueT, detail::MapHasher, detail::MapCompareEqual> {
-    using base = ::emhash8::HashMap<KeyT, ValueT, detail::MapHasher, detail::MapCompareEqual>;
+  template<typename KeyT, typename ValueT, typename HasherT, typename EqualsT>
+  struct Map : public ::emhash8::HashMap<KeyT, ValueT, HasherT, EqualsT> {
+    using base = ::emhash8::HashMap<KeyT, ValueT, HasherT, EqualsT>;
     using base::base;
   };
 }

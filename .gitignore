@@ -2,6 +2,7 @@
 .idea/
 .vscode/
 build/
+build-release/
 build-pico/
 build-mingw/
 Drivers/

@@ -1,22 +1,49 @@
 #pragma once
 
 #include "tesl_common.hpp"
-#include "tesl_var.hpp"
+#include "tesl_signature.hpp"
+#include "tesl_type.hpp"
 
 namespace tesl {
-  struct FnPtr {
-    FnPtrBare ptr = nullptr;
-    mutable Variant user_data;
+  struct CallError {
+    enum Why {
+      UNSPECIFIED,
+      COULD_NOT_FIND,
+    } why;
 
-    bool is_valid() const {
-      return ptr != nullptr;
-    }
+    static CallError could_not_find(Signature sig, Type t) { return CallError{COULD_NOT_FIND, MOV(sig), MOV(t)}; }
+    
+    void format(FmtParseContext & parse_ctx, FmtFormatContext & ctx) const;
 
+    Signature signature;
+    Type type;
+  };
+
+  /*struct ClosureBase {
+    FnPtr _impl;
+    SignatureRef signature;
     void operator()(FnContext * context, void * args, void * ret) const {
-      context->user_data = &user_data;
-      ptr(context, args, ret);
+      // todo: finish
     }
   };
+
+  struct Closure : ClosureBase, RefCounted<Closure> {};
+
+  struct FnBare {
+    FnPtrBare _impl;
+    SignatureRef signature;
+    void operator()(FnContext * context, void * args, void * ret) const {
+      _impl(context, args, ret);
+    }
+  };
+
+  struct FnNative {
+    FnPtr _impl;
+    SignatureRef signature;
+    void operator()(FnContext * context, void * args, void * ret) const {
+      _impl(context, args, ret);
+    }
+  };*/
 //lalalala i am the secret code demon ^w^ i am hiding in between your lines of code
   /*namespace detail {
     template<IntT ... I>

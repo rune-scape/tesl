@@ -1,12 +1,15 @@
 // token definitions for use with macros (yuck)
 // for ease of development
+// all tokens besides meta tokens go in a group detnoted by the first character
 // tokens in group must be longest first or else
 // TESL_TOKEN_GROUP(ch) will give the first character of a group
 // TESL_TOKEN_GROUP_END will denote the end of a group
+// TESL_TOKEN_META_DEF(str, name) will give the human readable name of the meta token in str, and the enum id in name 
 // TESL_TOKEN_SYMBOL_DEF(str, name) will give the match string and the name of a symbol token
 // TESL_TOKEN_KEYWORD_DEF(str, name) will give the match string and the name of a keyword token
 // TESL_TOKEN_LITERAL_KEYWORD_DEF(str, value) will give the match string and the value of a token literal
 // TESL_TOKEN_DECIMAL_POINT will denote where a number could parse
+// TESL_TOKEN_FORWARD_SLASH will denote where a comment might be parse
 
 #ifndef TESL_TOKEN_GROUP
 #error "TESL_TOKEN_GROUP must be defined!"
@@ -14,6 +17,10 @@
 
 #ifndef TESL_TOKEN_GROUP_END
 #error "TESL_TOKEN_GROUP_END must be defined!"
+#endif
+
+#ifndef TESL_TOKEN_META_DEF
+#error "TESL_TOKEN_META_DEF must be defined!"
 #endif
 
 #ifndef TESL_TOKEN_SYMBOL_DEF
@@ -29,8 +36,17 @@
 #endif
 
 #ifndef TESL_TOKEN_DECIMAL_POINT
-#error "TESL_TOKEN_DECIMAL_POINT must be defined!"
+#define TESL_TOKEN_DECIMAL_POINT
 #endif
+
+#ifndef TESL_TOKEN_FORWARD_SLASH
+#define TESL_TOKEN_FORWARD_SLASH
+#endif
+
+TESL_TOKEN_META_DEF("none", NONE)
+TESL_TOKEN_META_DEF("end", END)
+TESL_TOKEN_META_DEF("identifier", IDENTIFIER)
+TESL_TOKEN_META_DEF("literal", LITERAL)
 
 TESL_TOKEN_GROUP('!')
 TESL_TOKEN_SYMBOL_DEF("!=", BANG_EQUAL)
@@ -68,9 +84,12 @@ TESL_TOKEN_SYMBOL_DEF("-", MINUS)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('.')
 TESL_TOKEN_DECIMAL_POINT
+TESL_TOKEN_SYMBOL_DEF("...", DOT_DOT_DOT)
+TESL_TOKEN_SYMBOL_DEF("..", DOT_DOT)
 TESL_TOKEN_SYMBOL_DEF(".", DOT)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('/')
+TESL_TOKEN_FORWARD_SLASH
 TESL_TOKEN_SYMBOL_DEF("/=", SLASH_EQUAL)
 TESL_TOKEN_SYMBOL_DEF("/", SLASH)
 TESL_TOKEN_GROUP_END
@@ -128,9 +147,11 @@ TESL_TOKEN_KEYWORD_DEF("for", FOR)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('i')
 TESL_TOKEN_KEYWORD_DEF("if", IF)
+TESL_TOKEN_KEYWORD_DEF("is", IS)
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('n')
 TESL_TOKEN_KEYWORD_DEF("not", NOT)
+TESL_TOKEN_LITERAL_KEYWORD_DEF("null", ::tesl::Null{})
 TESL_TOKEN_GROUP_END
 TESL_TOKEN_GROUP('o')
 TESL_TOKEN_KEYWORD_DEF("or", OR)
@@ -163,7 +184,9 @@ TESL_TOKEN_GROUP_END
 
 #undef TESL_TOKEN_GROUP
 #undef TESL_TOKEN_GROUP_END
+#undef TESL_TOKEN_META_DEF
 #undef TESL_TOKEN_SYMBOL_DEF
 #undef TESL_TOKEN_KEYWORD_DEF
 #undef TESL_TOKEN_LITERAL_KEYWORD_DEF
 #undef TESL_TOKEN_DECIMAL_POINT
+#undef TESL_TOKEN_FORWARD_SLASH

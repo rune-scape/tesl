@@ -1,9 +1,13 @@
 
 add_executable(tesl
     main.cpp
+    tesl_fwd.hpp
     tcolor.hpp tcolor.cpp
+    tesl_fmt.hpp tesl_fmt.cpp
     tesl_common.hpp tesl_common.cpp
-    tesl_bootstrap.hpp tesl_bootstrap.cpp
+    tesl_coroutine.hpp
+    tesl_builtins.hpp tesl_builtins.cpp
+    tesl_bind.hpp tesl_bind.cpp
     tesl_math.hpp tesl_math.cpp
     tesl_str.hpp tesl_str.cpp
     tesl_fn.hpp tesl_fn.cpp
@@ -13,19 +17,26 @@ add_executable(tesl
     tesl_dynamic_map.hpp tesl_dynamic_map.cpp
     tesl_var.hpp tesl_var.cpp
     tesl_ref.hpp
-    tesl_type.hpp tesl_type.cpp
     tesl_hash.hpp tesl_hash.cpp
+    tesl_env.hpp tesl_env.cpp
+    tesl_name.hpp tesl_name.cpp
     tesl_signature.hpp tesl_signature.cpp
-    tesl_operator.hpp tesl_operator.cpp
-    tesl_member.hpp tesl_member.cpp
+    tesl_type.hpp tesl_type.cpp
+    tesl_member_function.hpp tesl_member_function.cpp
+    tesl_member_variable.hpp tesl_member_variable.cpp
     tesl_symbol_table.hpp
+    tesl_parse.hpp
     tesl_tokenizer.hpp tesl_tokenizer.cpp
+    tesl_grammar.hpp tesl_grammar.cpp
     tesl_parser.hpp tesl_parser.cpp
+    #tesl_compiler.hpp tesl_compiler.cpp
 )
 
 target_link_libraries(tesl PRIVATE fmt)
 target_link_libraries(tesl PRIVATE isptr)
-target_link_options(tesl PRIVATE -Werror=switch)
+target_link_libraries(tesl PRIVATE mio)
+target_compile_options(tesl PRIVATE -Werror=switch -Werror=dangling-reference)
+target_compile_definitions(tesl PUBLIC ISPTR_SUPPORT_STD_FORMAT=0)
 
 if(WIN32)
     target_link_options(tesl PRIVATE -static-libgcc -static-libstdc++)

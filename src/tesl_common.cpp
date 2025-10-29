@@ -1,96 +1,122 @@
 #include "tesl_common.hpp"
 
-#include "tesl_bootstrap.hpp"
-#include "tesl_error.hpp"
-#include "tesl_operator.hpp"
+#include "tesl_bind.hpp"
+#include "tesl_fmt.hpp"
 #include "tesl_type.hpp"
 #include <fmt/format.h>
+#include <memory>
 
 namespace tesl {
-  namespace detail {
-    static void raw_convert_float_to_int(FnContext * context, void * pArgs, void * pRet) {
+  namespace impl {
+    void format_null(void * this_, void * pArgs, void * pRet) {
       struct Args {
-        IntT v;
+        FmtFormatter formatter;
       };
+      Args & args = *reinterpret_cast<Args *>(pArgs);
+      format_to(args.formatter.out(), "null");
+    }
 
-      Args * args = reinterpret_cast<Args *>(pArgs);
-      FloatT * ret = reinterpret_cast<FloatT *>(pRet);
-      *ret = (args->v);
+    void format_bool(void * this_, void * pArgs, void * pRet) {
+      struct Args {
+        FmtFormatter formatter;
+      };
+      Bool & v = *reinterpret_cast<Bool *>(this_);
+      Args & args = *reinterpret_cast<Args *>(pArgs);
+      format_to(args.formatter.out(), "{}", v ? "true" : "false");
+    }
+
+    void format_int(void * this_, void * pArgs, void * pRet) {
+      struct Args {
+        FmtFormatter formatter;
+      };
+      IntT & v = *reinterpret_cast<IntT *>(this_);
+      Args & args = *reinterpret_cast<Args *>(pArgs);
+      fmt::format_int formatted_int{v};
+      format_to(args.formatter.out(), "{}", v);
+    }
+
+    void format_float(void * this_, void * pArgs, void * pRet) {
+      struct Args {
+        FmtFormatter formatter;
+      };
+      FloatT & v = *reinterpret_cast<FloatT *>(this_);
+      Args & args = *reinterpret_cast<Args *>(pArgs);
+      format_to(args.formatter.out(), "{}", v);
+    }
+
+    void format_type(void * this_, void * pArgs, void * pRet) {
+      struct Args {
+        FmtFormatter formatter;
+      };
+      Type & v = *reinterpret_cast<Type *>(this_);
+      Args & args = *reinterpret_cast<Args *>(pArgs);
+      format_to(args.formatter.out(), "{}", v);
+    }
+
+    void convert_int_to_float(void * this_, void * pArgs, void * pRet) {
+      IntT & v = *reinterpret_cast<IntT *>(this_);
+      FloatT & ret = *reinterpret_cast<FloatT *>(pRet);
+      std::construct_at(&ret, v);
     }
   }
 
   template<>
-  TypeRef make_type_info<Null>() {
-    Ref<TypeInfo> ref = new_ref<TypeInfo>(
-      TESL_STRVIEW("Null"),
-      TESL_STRVIEW("Null"),
-      TESL_SIGNATURE_INDEX("->Null"),
-      0,
-      1,
-      FnPtrBare{empty_fn},
-      FnPtrBare{empty_fn},
-      FnPtrBare{empty_fn},
-      FnPtrBare{empty_fn}
-    );
-    return ref;
+  void bind_type_info<Null>(TypeInfo & type) {
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::format_null, "format(fmt:Formatter)");
+    // todo: finish
   }
 
   template<>
-  TypeRef get_builtin_type_info_of<Null>() {
-    static TypeRef ret = make_type_info<Null>();
-    return ret;
+  void bind_type_info<Bool>(TypeInfo & type) {
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::format_bool, "format(fmt:Formatter)");
+    // todo: finish
   }
 
   template<>
-  TypeRef make_type_info<Bool>() {
-    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(Bool, "Bool");
-    return ref;
+  void bind_type_info<IntT>(TypeInfo & type) {
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::format_int, "format(fmt:Formatter)");
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::convert_int_to_float, "->");
+    // todo: finish
   }
 
   template<>
-  TypeRef get_builtin_type_info_of<Bool>() {
-    static TypeRef ret = make_type_info<Bool>();
-    return ret;
+  void bind_type_info<FloatT>(TypeInfo & type) {
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::format_float, "format(fmt:Formatter)");
+    // todo: finish
   }
 
   template<>
-  TypeRef make_type_info<IntT>() {
-    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(IntT, "Int");
-    return ref;
+  void bind_type_info<Type>(TypeInfo & type) {
+    TESL_BIND_BUITIN_BARE_MEMBER_FUNCTION(type, impl::format_type, "format(fmt:Formatter)");
+    // todo: finish
   }
 
-  template<>
-  TypeRef get_builtin_type_info_of<IntT>() {
-    static TypeRef ret = make_type_info<IntT>();
-    return ret;
+  void print(std::FILE * f, StrView str) {
+    fmt::detail::print(f, str);
   }
 
-  template<>
-  TypeRef make_type_info<FloatT>() {
-    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(FloatT, "Float");
-    TESL_BIND_BASIC_BARE(ref, detail::raw_convert_float_to_int, "->Int");
-    return ref;
+  void _log_print_prefix_impl(FILE * f, tcolor::fg col, const char * prefix) {
+    tcolor::setColor(f, col);
+    tcolor::setStyle(f, tcolor::style::bold);
+    std::fputs(prefix, f);
+    std::fputs(": ", f);
+    tcolor::setStyle(f, tcolor::style::reset);
   }
 
-  template<>
-  TypeRef get_builtin_type_info_of<FloatT>() {
-    static TypeRef ret = make_type_info<FloatT>();
-    return ret;
+  void _log_print_msg_impl(FILE * f, tcolor::fg col, const char * msg) {
+    tcolor::setColor(f, col);
+    std::fputs(msg, f);
+    tcolor::setColor(f, tcolor::fg::reset);
   }
 
-  template<>
-  TypeRef make_type_info<TypeRef>() {
-    Ref<TypeInfo> ref = TESL_NEW_BUILTIN_TYPE_INFO(TypeRef, "Type");
-    return ref;
-  }
-
-  template<>
-  TypeRef get_builtin_type_info_of<TypeRef>() {
-    static TypeRef ret = make_type_info<TypeRef>();
-    return ret;
+  void _log_print_source_location_impl(FILE * f, const std::source_location & loc) {
+    tcolor::setColor(f, tcolor::fg::gray);
+    fmt::print(f, " (at {}:{}:{} in {})\n", loc.file_name(), loc.line(), loc.column(), loc.function_name());
+    tcolor::setColor(f, tcolor::fg::reset);
   }
 
   void print_error_sourcev(FILE * file, int line_num, const char * line_start, const char * start, const char * point, const char * const end) {
+    // todo: modernize
     TESL_ASSERT(start <= point && point <= end);
     const char * line_end = line_start;
     do {

@@ -1,6 +1,12 @@
 [submodule "intrusive_shared_ptr"]
 	path = intrusive_shared_ptr
-	url = ./intrusive_shared_ptr/
+	url = https://github.com/rune-scape/intrusive_shared_ptr.git
 [submodule "fmt"]
 	path = fmt
-	url = ./fmt/
+	url = https://github.com/rune-scape/fmt.git
+[submodule "mio"]
+	path = mio
+	url = https://github.com/vimpunk/mio.git
+[submodule "Catch2"]
+	path = Catch2
+	url = https://github.com/catchorg/Catch2.git

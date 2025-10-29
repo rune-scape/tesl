@@ -1,12 +1,12 @@
 #include "tesl_parser.hpp"
 
-#include "tesl_error.hpp"
+#include "tesl_fmt.hpp"
 #include "tesl_str.hpp"
 #include <fmt/format.h>
 
 namespace tesl::rules {
   struct ExprResult {
-    TypeRef type = get_builtin_type_info_of<Null>();
+    Type type = get_type_of<Null>();
   };
   /*struct ExprResult {
     const TypeInfo * type;
@@ -33,10 +33,6 @@ namespace tesl::rules {
     }
   };*/
 
-  using ParseSequence = Parser::ParseSequence;
-  using ParseResult = Parser::ParseResult;
-  using ParseFn = Parser::ParseFn;
-
   struct PatternElement;
   struct PatternRefStorage;
   struct RuleRefStorage;
@@ -51,7 +47,7 @@ namespace tesl::rules {
 namespace tesl {
   using ExprResult = rules::ExprResult;
 
-  struct Parser::ParseResult {
+  struct Parser::ResolvedNode {
     enum Kind {
       NONE,
       TOKEN,
@@ -69,18 +65,18 @@ namespace tesl {
       rules::ExprResult expr;
     };
 
-    ParseResult & operator=(const ParseResult & other) {
-      this->~ParseResult();
-      new(this) ParseResult(other);
+    ResolvedNode & operator=(const ResolvedNode & other) {
+      this->~ResolvedNode();
+      new(this) ResolvedNode(other);
       return *this;
     }
   
-    ParseResult & operator=(ParseResult && other) {
+    ResolvedNode & operator=(ResolvedNode && other) {
       memswap(*this, other);
       return *this;
     }
 
-    ParseResult(const ParseResult & other) : kind(other.kind) {
+    ResolvedNode(const ResolvedNode & other) : kind(other.kind) {
       switch (other.kind) {
         case NONE:
           break;
@@ -99,11 +95,11 @@ namespace tesl {
       }
     }
 
-    ParseResult(ParseResult && other) {
+    ResolvedNode(ResolvedNode && other) {
       memswap(*this, other);
     }
 
-    explicit ParseResult(const Token & t) {
+    explicit ResolvedNode(const Token & t) {
       if (t.kind == Token::LITERAL) {
         kind = VALUE;
         new(&value) Variant(t.literal);
@@ -115,11 +111,11 @@ namespace tesl {
         token = t.kind;
       }
     }
-    explicit ParseResult(Token::Kind k) : kind(TOKEN), token(k) {}
-    ParseResult(rules::ExprResult e) : kind(EXPR), expr(e) {}
+    explicit ResolvedNode(Token::Kind k) : kind(TOKEN), token(k) {}
+    ResolvedNode(rules::ExprResult e) : kind(EXPR), expr(e) {}
 
-    ParseResult() {}
-    ~ParseResult() {
+    ResolvedNode() {}
+    ~ResolvedNode() {
       switch (kind) {
         case NONE:
         case TOKEN:
@@ -137,101 +133,97 @@ namespace tesl {
     }
   };
 
-  struct Parser::ParseSequence : public Array<Parser::ParseResult> {};
+  struct Parser::ParseSequence : public Array<Parser::ResolvedNode> {};
 
 #define parser_error(...) \
   do { \
     has_error = true; \
-    fmt::print(stderr, "parser error: "); \
-    fmt::println(stderr, __VA_ARGS__); \
-    print_error_source(); \
+    TESL_ERROR_PRINT_MSG_BASE("parser error", __VA_ARGS__); \
   } while (false)
 
 #define internal_parser_error(...) \
   do { \
     has_error = true; \
-    fmt::print(stderr, "internal parser error: "); \
-    fmt::println(stderr, __VA_ARGS__); \
-    print_error_source(); \
+    TESL_ERROR_PRINT_MSG_BASE("internal parser error", __VA_ARGS__); \
   } while (false)
 
-  Parser::ParseResult Parser::parse_literal_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_literal_expr(ParseSequence sequence) {
     TESL_ASSERT(sequence.size() == 1);
-    TESL_ASSERT(sequence[0].kind == ParseResult::VALUE);
+    TESL_ASSERT(sequence[0].kind == ResolvedNode::VALUE);
     return {sequence[0]};
   }
 
-  Parser::ParseResult Parser::parse_identifier_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_identifier_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_grouping_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_grouping_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_subscript_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_subscript_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_call_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_call_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_construct_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_construct_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_dot_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_member_access_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_postfix_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_postfix_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_prefix_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_prefix_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_arithmetic_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_arithmetic_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_comparison_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_comparison_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_bitwise_op_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_bitwise_op_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_boolean_op_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_boolean_op_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_ternary_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_ternary_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_assignment_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_assignment_expr(ParseSequence sequence) {
     // TODO: finish
     return {ExprResult()};
   }
 
-  Parser::ParseResult Parser::parse_sequence_expr(ParseSequence sequence) {
+  Parser::ResolvedNode Parser::parse_sequence_expr(ParseSequence sequence) {
     TESL_ASSERT(sequence.size() >= 3);
     TESL_ASSERT(sequence.size() % 2 == 1);
 
@@ -310,7 +302,7 @@ namespace tesl {
 
     struct RuleRefStorage {
       CharStrView name;
-      ParseFn parse = nullptr;
+      Parser::ParseFn parse = nullptr;
       PatternRefStorage pattern;
 
       bool is_valid() const {
@@ -370,7 +362,7 @@ namespace tesl {
 
       CharStrView get_name() const;
       PatternRef get_pattern() const;
-      ParseResult parse(Parser & p, ParseSequence && seq);
+      Parser::ResolvedNode parse(Parser & p, Parser::ParseSequence && seq);
 
       constexpr RuleRef(const RuleRefList & l, const RuleRefStorage * r) : list(l), _storage(r) {}
       constexpr RuleRef() = default;
@@ -445,23 +437,23 @@ namespace tesl {
 }
 
 template<typename CharT>
-class fmt::formatter<tesl::Parser::ParseResult, CharT> {
+class fmt::formatter<tesl::Parser::ResolvedNode, CharT> {
 public:
   template<typename Context> constexpr auto parse(Context & ctx) const { return ctx.begin(); }
-  template<typename Context> constexpr auto format(const tesl::Parser::ParseResult & pr, Context & ctx) const {
+  template<typename Context> constexpr auto format(const tesl::Parser::ResolvedNode & pr, Context & ctx) const {
     using namespace tesl;
     using namespace rules;
 
     switch (pr.kind) {
-      case ParseResult::NONE:
+      case Parser::ResolvedNode::NONE:
         return fmt::format_to(ctx.out(), "<none>");
-      case ParseResult::TOKEN:
+      case Parser::ResolvedNode::TOKEN:
         return fmt::format_to(ctx.out(), "token: {:?}", pr.token);
-      case ParseResult::VALUE:
+      case Parser::ResolvedNode::VALUE:
         return fmt::format_to(ctx.out(), "value: {}", pr.value);
-      case ParseResult::IDENTIFIER:
+      case Parser::ResolvedNode::IDENTIFIER:
         return fmt::format_to(ctx.out(), "identifier: {}", pr.identifier);
-      case ParseResult::EXPR:
+      case Parser::ResolvedNode::EXPR:
         return fmt::format_to(ctx.out(), "expr: {}", pr.expr.type);
     }
 
@@ -532,8 +524,8 @@ namespace tesl {
       return {*this, &_storage->pattern};
     }
 
-    ParseResult RuleRef::parse(Parser & p, ParseSequence && seq) {
-      ParseFn parsefn = _storage->parse;
+    Parser::ResolvedNode RuleRef::parse(Parser & p, Parser::ParseSequence && seq) {
+      Parser::ParseFn parsefn = _storage->parse;
       return ((&p)->*parsefn)(MOV(seq));
     }
 
@@ -619,7 +611,7 @@ namespace tesl {
 #endif
 
       ElementRef match = *this;
-      int loops = 0;
+      IntT loops = 0;
       while (match.is_opt()) {
         ElementRef a = ElementRef{match.pattern, match.element_index + 1}.follow();
         ElementRef b = ElementRef{match.pattern, match.element_index + match->offset + 1}.follow();
@@ -667,7 +659,7 @@ namespace tesl {
       TESL_ASSERT(get_kind() == PatternElement::OPTIONAL);
 
       ElementRef match = *this;
-      int loops = 0;
+      IntT loops = 0;
       while (match.is_opt()) {
         ElementRef a = ElementRef{match.pattern, match.element_index + 1}.follow();
         ElementRef b = ElementRef{match.pattern, match.element_index + match->offset + 1}.follow();
@@ -716,9 +708,9 @@ namespace tesl {
       return pattern.is_valid() && element_index == pattern.size();
     }
 
-    template<int ElementCount>
+    template<IntT ElementCount>
     struct PatternTmpl {
-      static constexpr int size = ElementCount;
+      static constexpr IntT size = ElementCount;
       PatternElement elements[ElementCount];
 
       constexpr operator const PatternElement *() const { return elements; }
@@ -730,17 +722,17 @@ namespace tesl {
       return {PatternElement{elements}...};
     }
 
-    template<int ElementCount>
+    template<IntT ElementCount>
     struct RuleTmpl {
       CharStrView name;
-      ParseFn parse = nullptr;
+      Parser::ParseFn parse = nullptr;
       PatternTmpl<ElementCount> pattern;
     };
 
     template<typename T>
     struct RuleListTmpl;
 
-    template<int V, int ... NextVs>
+    template<IntT V, IntT ... NextVs>
     struct RuleListTmpl<value_pack<V, NextVs...>> : RuleListTmpl<value_pack<NextVs...>> {
       using base = RuleListTmpl<value_pack<NextVs...>>;
       
@@ -775,16 +767,16 @@ namespace tesl {
     template<typename T>
     struct RuleLibraryTmplBase;
 
-    template<int ... Vs, typename ... NextTs>
+    template<IntT ... Vs, typename ... NextTs>
     struct RuleLibraryTmplBase<type_pack<value_pack<Vs...>, NextTs...>> : RuleLibraryTmplBase<type_pack<NextTs...>> {
       using base = RuleLibraryTmplBase<type_pack<NextTs...>>;
 
       RuleListTmpl<value_pack<Vs...>> this_list;
 
       RuleRefStorage list_rules[sizeof...(Vs)];
-      static constexpr int size = sizeof...(NextTs) + 1;
+      static constexpr IntT size = sizeof...(NextTs) + 1;
 
-      constexpr RuleRefListStorage operator[](int i) {
+      constexpr RuleRefListStorage operator[](IntT i) {
         if (i < 0) {
           return {};
         } else if (i == 0) {
@@ -795,7 +787,7 @@ namespace tesl {
       }
 
       constexpr RuleLibraryTmplBase(RuleListTmpl<value_pack<Vs...>> rule_list, RuleListTmpl<NextTs> ... next_lists) : base(next_lists...), this_list(rule_list) {
-        for (int i = 0; i < sizeof...(Vs); ++i) {
+        for (IntT i = 0; i < sizeof...(Vs); ++i) {
           list_rules[i] = this_list[i];
         }
       }
@@ -803,9 +795,9 @@ namespace tesl {
 
     template<>
     struct RuleLibraryTmplBase<type_pack<>> {
-      static constexpr int size = 0;
+      static constexpr IntT size = 0;
 
-      constexpr RuleRefListStorage operator[](int i) {
+      constexpr RuleRefListStorage operator[](IntT i) {
         return {};
       }
     };
@@ -814,26 +806,26 @@ namespace tesl {
     struct RuleLibraryTmpl : public RuleLibraryTmplBase<type_pack<Ts...>> {
       using base = RuleLibraryTmplBase<type_pack<Ts...>>;
 
-      static constexpr int size = sizeof...(Ts);
+      static constexpr IntT size = sizeof...(Ts);
 
-      static constexpr int max_precedence = size - 1;
+      static constexpr IntT max_precedence = size - 1;
 
       StrView label;
       RuleRefListStorage lists[sizeof...(Ts)];
 
       constexpr RuleLibraryTmpl(StrView l, RuleListTmpl<Ts> ... rule_lists) : base(rule_lists...), label(l) {
-        for (int i = 0; i < sizeof...(Ts); ++i) {
+        for (IntT i = 0; i < sizeof...(Ts); ++i) {
           lists[i] = base::operator[](i);
         }
       }
     };
 
-    template<int ElementCount>
-    constexpr RuleTmpl<ElementCount> make_rule(CharStrView name, ParseFn parse_fn, PatternTmpl<ElementCount> pattern) {
+    template<IntT ElementCount>
+    constexpr RuleTmpl<ElementCount> make_rule(CharStrView name, Parser::ParseFn parse_fn, PatternTmpl<ElementCount> pattern) {
       return {name, parse_fn, pattern};
     }
 
-    template<int ... Vs>
+    template<IntT ... Vs>
     constexpr auto make_rule_list(RuleTmpl<Vs> ... rules) {
       return RuleListTmpl<value_pack<Vs...>>{rules...};
     }
@@ -875,9 +867,9 @@ namespace tesl {
         make_rule("grouping", &Parser::parse_grouping_expr, make_pattern(Token::OPEN_PAREN, precedence_rule<-1>, Token::CLOSE_PAREN))
       ),
       make_rule_list(
-        make_rule("subscript", &Parser::parse_subscript_expr, make_pattern(similar_rule, Token::OPEN_SQUARE_BRACKET, precedence_rule<-2>, Token::OPEN_SQUARE_BRACKET)),
+        make_rule("member access", &Parser::parse_member_access_expr, make_pattern(similar_rule, Token::DOT, Token::IDENTIFIER)),
         make_rule("function call", &Parser::parse_call_expr, make_pattern(similar_rule, Token::OPEN_PAREN, opt<5>, precedence_rule<-2>, opt<3>, Token::COMMA, precedence_rule<-2>, opt<-3>, Token::CLOSE_PAREN)),
-        make_rule("member access", &Parser::parse_dot_expr, make_pattern(similar_rule, Token::DOT, Token::IDENTIFIER))
+        make_rule("subscript", &Parser::parse_subscript_expr, make_pattern(similar_rule, Token::OPEN_SQUARE_BRACKET, opt<5>, precedence_rule<-2>, opt<3>, Token::COMMA, precedence_rule<-2>, opt<-3>, Token::OPEN_SQUARE_BRACKET))
       ),
       make_rule_list(
         make_rule("unary plus", &Parser::parse_prefix_expr, make_pattern(Token::PLUS, similar_rule)),
@@ -985,11 +977,11 @@ namespace tesl {
   const rules::RuleLibrary Parser::expression_library = rules::expression_library_tmpl;
 
   void Parser::parse_program() {
-    current_token = tokenizer.next_token();
+    current_token = tokenizer.next();
     parse_precedence(expression_library, -1);
   }
 
-  Parser::ParseResult Parser::parse_precedence(const rules::RuleLibrary & library, IntT precedence) {
+  Parser::ResolvedNode Parser::parse_precedence(const rules::RuleLibrary & library, IntT precedence) {
     using namespace rules;
 
     if (precedence < 0) {
@@ -1001,15 +993,15 @@ namespace tesl {
     RuleRef rule = library.find_rule_precedence_first(current_token.kind, precedence);
     if (!rule.is_valid()) {
       parser_error("expected {}[p{}], got {}!", library.get_label(), precedence, current_token);
-      current_token = tokenizer.next_token();
+      current_token = tokenizer.next();
       return {};
     }
 
-    ParseResult result{current_token};
+    ResolvedNode result{current_token};
 #ifdef TESL_DEBUG_PARSER
     fmt::println("push {}", current_token);
 #endif
-    current_token = tokenizer.next_token();
+    current_token = tokenizer.next();
     do {
       result = parse_precedence_impl(rule, MOV(result));
       rule = library.find_rule_precedence_second(rule, current_token.kind, precedence);
@@ -1018,7 +1010,7 @@ namespace tesl {
     return result;
   }
 
-  Parser::ParseResult Parser::parse_precedence_impl(rules::RuleRef rule, ParseResult initial) {
+  Parser::ResolvedNode Parser::parse_precedence_impl(rules::RuleRef rule, ResolvedNode initial) {
     using namespace rules;
 
     TESL_FAIL_COND(!rule.is_valid(), return {});
@@ -1033,15 +1025,15 @@ namespace tesl {
         case rules::PatternElement::TOKEN: {
           if (e->token != current_token) {
             parser_error("expected {}, got {}!", e, current_token);
-            current_token = tokenizer.next_token();
+            current_token = tokenizer.next();
             return {};
           }
           
-          parse_sequence.push_back(ParseResult{current_token});
+          parse_sequence.push_back(ResolvedNode{current_token});
 #ifdef TESL_DEBUG_PARSER
           fmt::println("push {}", parse_sequence.back());
 #endif
-          current_token = tokenizer.next_token();
+          current_token = tokenizer.next();
         } break;
         case rules::PatternElement::ABSOLUTE_PRECEDENCE_RULE:
         case rules::PatternElement::RELATIVE_PRECEDENCE_RULE: {
@@ -1051,7 +1043,7 @@ namespace tesl {
           ElementRef b = e.choose_branch(current_token.kind);
           if (!b.is_valid()) {
             parser_error("expected {}, got {}!", e.stringify_branch_choices(), current_token);
-            current_token = tokenizer.next_token();
+            current_token = tokenizer.next();
             return {};
           }
 
@@ -1077,7 +1069,7 @@ namespace tesl {
     return rule.parse(*this, MOV(parse_sequence));
   }
 
-  Parser::Parser(Tokenizer pTokenizer, Compiler pCompiler) : tokenizer(pTokenizer), compiler(pCompiler) {}
+  Parser::Parser(Tokenizer pTokenizer) : tokenizer(pTokenizer) {}
 
   void Parser::print_error_source(const Token & t) const {
     tesl::print_error_source(tokenizer.line_num, tokenizer.line_start, t.span.begin(), t.span.begin(), t.span.end());

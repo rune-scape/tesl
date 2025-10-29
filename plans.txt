@@ -21,7 +21,28 @@ ref-counting
     could also extend to 
 
 symbols:
-- "[_]": subscript/array index operator
-- "+=_", "-=_", "*=_", "/=_": 
+- "()": call operator, no return
+- "()->_": call operator with return
+- "(_,_,...)->_,_,...": call operator with many parameters and returns
+- "[_]->_": index operator with return
+- "[_,_,...]->_,_,...": index operator with many parameters and returns
+- "+=_->_", "-=_->_", "*=_->_", "/=_->_":
 
-underscores are replaced with type info e.g. "[_]" with 2 int parameters would be "[Int, Int]"
+underscores are replaced with type info e.g. "[_]->_" taking an Int parameter and returning a Str would be "[Int]->Str"
+
+would love to works something like this in https://github.com/FelixPetriconi/AllocatorBuilder
+im a bit afraid of how it hasnt been updated in 8 years, but i do need some special allocator 
+
+inferred type dependant lookup:
+- when in a sub-expression parsing context, attributes of the result type, if known, may be reference directly without qualified name
+
+rust like match expression:
+var e := get_enum();
+match () {
+  Ok {}
+}
+
+hopefully will be able to take many good concepts from rust while keeping everything lightweight (unsure how much would be needed for some lightweight pattern-like thing: https://doc.rust-lang.org/reference/patterns.html#binding-modes)
+
+CowString: copy on write string, and more generally copy on write data
+custom string type and dynamic array type

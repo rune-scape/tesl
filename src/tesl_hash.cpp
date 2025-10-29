@@ -1,17 +1,13 @@
 #include "tesl_hash.hpp"
 
 extern "C" {
-#ifdef TESL_USE_64_BIT_NUMBERS
-#define WYHASH_32BIT_MUM 0
-#else
 #define WYHASH_32BIT_MUM 1
-#endif
 #include "wyhash.h"
 }
 
 namespace tesl {
   namespace detail {
-    HashT hash_mix(uint64_t a, HashT b) {
+    uint64_t hash_mix(uint64_t a, uint64_t b) {
       return _wymix(a, b);
     }
 

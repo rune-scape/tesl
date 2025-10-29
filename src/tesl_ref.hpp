@@ -23,4 +23,9 @@ namespace tesl {
   inline Ref<T> new_ref(Args && ... args) {
     return Ref<T>::noref(new T(FWD(args)...));
   }
+
+  template<typename T, typename U>
+  inline Ref<T> get_ref(U & v) {
+    return Ref<T>::ref(v);
+  }
 }

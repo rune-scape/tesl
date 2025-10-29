@@ -2,8 +2,6 @@
 
 #include "tesl_common.hpp"
 #include "tesl_hash.hpp"
-#include "tesl_array.hpp"
-#include <fmt/fwd.h>
 #include <string>
 
 namespace tesl {
@@ -21,6 +19,5 @@ namespace tesl {
     return hash(static_cast<BasicStrViewT<T>>(str));
   }
 
-  template<> TypeRef make_type_info<Str>();
-  template<> TypeRef get_builtin_type_info_of<Str>();
+  template<> void bind_type_info<Str>(TypeInfo & type);
 }

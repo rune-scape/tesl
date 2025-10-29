@@ -74,7 +74,10 @@ namespace detail {
     }
 
     void setColorAnsi(FILE *f, int value) {
-        fmt::print(f, "\033[{}m", value);
+        std::fputs("\33[", f);
+        auto formatted_int = fmt::format_int(value);
+        std::fputs(formatted_int.c_str(), f);
+        std::fputs("m", f);
     }
 
 #ifdef TCOLOR_OS_WIN
