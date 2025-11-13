@@ -1,4 +1,5 @@
 #include "tesl_builtins.hpp"
+#include "tesl_common.hpp"
 #include "tesl_grammar.hpp"
 
 #include "tesl_symbol.hpp"
@@ -119,6 +120,7 @@ namespace tesl::grammar::tmpl {
     static constexpr SizeT element_count = ElementCount;
     static constexpr SizeT rule_count = RuleCount;
     static constexpr SizeT precedence_count = PrecedenceCount;
+    StrView label;
     std::array<PatternElement, ElementCount> elements;
     std::array<RuleRefStorage, RuleCount> rules;
     std::array<PrecedenceRefStorage, PrecedenceCount> precedences;
@@ -157,6 +159,10 @@ namespace tesl::grammar::tmpl {
       return result;
     }*/
 
+    RuleLibrary make_library() const {
+      return {label, elements.data(), rules.data(), precedences.data(), PrecedenceCount};
+    }
+
     consteval void adjust_rules(SizeT elements_begin, SizeT rules_begin, SizeT rule_count) {
       for (SizeT i = 0; i < rule_count; ++i) {
         auto & pattern = rules[rules_begin + i].pattern;
@@ -171,25 +177,27 @@ namespace tesl::grammar::tmpl {
     }
 
     template<SizeT EC, SizeT RC, SizeT PC, SizeT PrecedenceElementCount, SizeT PrecedenceRuleCount>
-    consteval Library(Library<EC, RC, PC> & l, Precedence<PrecedenceElementCount, PrecedenceRuleCount> & p) : elements(detail::concat_arrays(l.elements, p.elements)), rules(detail::concat_arrays(l.rules, p.rules)), precedences(detail::concat_arrays(l.precedences, std::array<PrecedenceRefStorage, 1>{p.as_storage(RC)})) {
+    consteval Library(Library<EC, RC, PC> & l, Precedence<PrecedenceElementCount, PrecedenceRuleCount> & p) : label(l.label), elements(detail::concat_arrays(l.elements, p.elements)), rules(detail::concat_arrays(l.rules, p.rules)), precedences(detail::concat_arrays(l.precedences, std::array<PrecedenceRefStorage, 1>{p.as_storage(RC)})) {
       adjust_rules(EC, RC, PrecedenceRuleCount);
     }
     
     template<SizeT PrecedenceElementCount, SizeT PrecedenceRuleCount>
-    consteval Library(Precedence<PrecedenceElementCount, PrecedenceRuleCount> & p) : elements(p.elements), rules(p.rules), precedences{p.as_storage(0)} {}
+    consteval Library(StrView p_label, Precedence<PrecedenceElementCount, PrecedenceRuleCount> & p) : label(p_label), elements(p.elements), rules(p.rules), precedences{p.as_storage(0)} {}
   };
 
   template<>
   struct Library<0, 0, 0> {
+    StrView label;
+
     template<SizeT PrecedenceElementCount, SizeT PrecedenceRuleCount>
     consteval Library<PrecedenceElementCount, PrecedenceRuleCount, 1> operator+(Precedence<PrecedenceElementCount, PrecedenceRuleCount> & p) {
-      return {p};
+      return {label, p};
     }
   };
 
   template<SizeT ... ElementCounts, SizeT ... RuleCounts>
   consteval auto make_rule_library(StrView label, Precedence<ElementCounts, RuleCounts> && ... lists) {
-    return (Library<0, 0, 0>{} + ... + lists);
+    return (Library<0, 0, 0>{label} + ... + lists);
   }
 
   constexpr PatternElement _literal = PatternElement{PatternElement::LITERAL, 0};

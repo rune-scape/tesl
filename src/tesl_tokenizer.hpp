@@ -1,6 +1,7 @@
 #pragma once
 
 #include "tesl_common.hpp"
+#include "tesl_coroutine.hpp"
 #include "tesl_fmt.hpp"
 #include "tesl_parse.hpp"
 #include "tesl_var.hpp"
@@ -68,8 +69,11 @@ namespace tesl {
     Token & next();
     void reset();
 
-    Tokenizer(CharStrView pInput) : input(pInput), input_it(pInput.begin()), line_start(pInput.begin()) {}
+    Tokenizer(CharStrView p_input);
+    ~Tokenizer();
   };
+
+  grammar::SyntaxStream make_token_generator(Tokenizer);
 }
 
 template<>

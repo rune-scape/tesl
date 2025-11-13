@@ -6,6 +6,7 @@
 #include "tesl_math.hpp"
 #include "tesl_type.hpp"
 #include "tesl_grammar.hpp"
+#include "tesl_syntax_resolver.hpp"
 #include "tesl_var.hpp"
 
 namespace tesl::builtin {

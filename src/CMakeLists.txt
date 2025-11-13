@@ -28,6 +28,7 @@ add_executable(tesl
     tesl_parse.hpp
     tesl_tokenizer.hpp tesl_tokenizer.cpp
     tesl_grammar.hpp tesl_grammar.cpp
+    tesl_syntax_resolver.hpp tesl_syntax_resolver.cpp
     tesl_parser.hpp tesl_parser.cpp
     #tesl_compiler.hpp tesl_compiler.cpp
 )

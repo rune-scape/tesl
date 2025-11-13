@@ -20,5 +20,6 @@ TESL_BUILTIN_TYPE_DEF(::tesl::Type, "Type", "Type")
 TESL_BUILTIN_TYPE_DEF(::tesl::FmtFormatter, "Formatter", "fmt:Formatter")
 TESL_BUILTIN_TYPE_DEF(::tesl::grammar::SyntaxNode, "SyntaxNode", "grammar:SyntaxNode")
 TESL_BUILTIN_TYPE_DEF(::tesl::grammar::SyntaxStream, "SyntaxStream", "grammar:SyntaxStream")
+TESL_BUILTIN_TYPE_DEF(::tesl::grammar::SyntaxResolver, "SyntaxResolver", "grammar:SyntaxResolver")
 
 #undef TESL_BUILTIN_TYPE_DEF

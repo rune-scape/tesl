@@ -166,8 +166,8 @@ namespace tesl::coroutine {
 
     Generator & operator=(const Generator &) = delete;
     Generator & operator=(Generator && other) {
-      swap(_coro, other._coro);
-      swap(_started, other._started);
+      tesl::swap(_coro, other._coro);
+      tesl::swap(_started, other._started);
       return *this;
     }
 

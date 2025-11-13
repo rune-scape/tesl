@@ -148,8 +148,7 @@ namespace tesl {
 
     struct RuleLibrary {
       StrView _label;
-      Type _resolver_type;
-      Type token_type;
+      //Type token_type;
       const PatternElement * _elements = nullptr;
       const RuleRefStorage * _rules = nullptr;
       const PrecedenceRefStorage * _precedences = nullptr;
@@ -171,8 +170,7 @@ namespace tesl {
       RuleLibrary(const RuleLibrary &) = delete;
       RuleLibrary(RuleLibrary &&) = delete;
 
-      template<typename T>
-      constexpr RuleLibrary(const T & library) : _label(library.label), _precedences(library.lists), precedence_count(library.size) {}
+      RuleLibrary(StrView p_label, const PatternElement * p_elements, const RuleRefStorage * p_rules, const PrecedenceRefStorage * p_precedences, IntT p_precedence_count) : _label(p_label), _elements(p_elements), _rules(p_rules), _precedences(p_precedences), precedence_count(p_precedence_count) {}
     };
 
     struct PrecedenceRef {

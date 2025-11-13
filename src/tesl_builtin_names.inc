@@ -24,5 +24,7 @@ TESL_BUILTIN_NAME_DEF(SyntaxNode)
 TESL_BUILTIN_NAME_DEF(grammar:SyntaxNode)
 TESL_BUILTIN_NAME_DEF(SyntaxStream)
 TESL_BUILTIN_NAME_DEF(grammar:SyntaxStream)
+TESL_BUILTIN_NAME_DEF(SyntaxResolver)
+TESL_BUILTIN_NAME_DEF(grammar:SyntaxResolver)
 
 #undef TESL_BUILTIN_NAME_DEF

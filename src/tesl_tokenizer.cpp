@@ -1,6 +1,9 @@
 #include "tesl_tokenizer.hpp"
 
 #include "tesl_common.hpp"
+#include "tesl_coroutine.hpp"
+#include "tesl_env.hpp"
+#include "tesl_grammar.hpp"
 #include "tesl_str.hpp"
 #include "tesl_parse.hpp"
 #include <fmt/format.h>
@@ -415,5 +418,27 @@ namespace tesl {
     line_num = 1;
     has_error = false;
     _has_current_token = false;
+  }
+
+  Tokenizer::Tokenizer(CharStrView p_input) : input(p_input), input_it(p_input.begin()), line_start(p_input.begin()) {}
+
+  Tokenizer::~Tokenizer() = default;
+
+  grammar::SyntaxStream make_token_generator(Tokenizer tokenizer) {
+    using namespace grammar;
+
+    while (true) {
+      Token t = tokenizer._next_token();
+      switch (t.kind) {
+        case Token::END:
+          co_return;
+        case Token::IDENTIFIER:
+          co_yield SyntaxNode::make_identifier(Env::current->add_name(t.span));
+        case Token::LITERAL:
+          co_yield SyntaxNode::make_literal(t.literal);
+        default:
+          co_yield SyntaxNode::make_token(t.kind);
+      }
+    }
   }
 }

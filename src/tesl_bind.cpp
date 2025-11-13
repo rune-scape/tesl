@@ -5,7 +5,7 @@
 #include "tesl_member_function.hpp"
 #include "tesl_symbol.hpp"
 
-namespace tesl::detail {
+namespace tesl {
   void bind_member_variable(TypeInfo & type, Name name, MemberVariable var) {
     TESL_FAIL_COND_MSG(type._member_variables.is_full(), return, "too many member variables for type '{}'", type);
     TESL_FAIL_COND_MSG(type._member_variables.has(name.symbol), return, "variable '{}' already defined in type '{}'", name, type);

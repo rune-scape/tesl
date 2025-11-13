@@ -174,26 +174,28 @@ namespace tesl {
       }
 
       do {
-        SyntaxStream resolved_rule = _parse_precedence_rule_impl(syntax, resolver, rule);
         std::aligned_storage_t<sizeof(SyntaxStream), alignof(SyntaxStream)> resolve_result_storage;
-        auto result = resolver.call_method(rule._get_storage().resolve_signature, &resolved_rule, &resolve_result_storage);
-        if (result.is_err()) {
-          grammar_error("{}", result.unwrap_err());
-          co_return;
+        {
+          SyntaxStream resolved_rule = _parse_precedence_rule_impl(syntax, resolver, rule);
+          auto result = resolver.call_method(rule._get_storage().resolve_signature, &resolved_rule, &resolve_result_storage);
+          if (result.is_err()) {
+            grammar_error("{}", result.unwrap_err());
+            co_return;
+          }
         }
 
-        SyntaxStream & resolved_result = *reinterpret_cast<SyntaxStream *>(&resolve_result_storage);
-
-        for (auto & n : resolved_result) {
+        for (auto & n : reinterpret_cast<SyntaxStream &>(resolve_result_storage)) {
           co_yield MOV(n);
         }
 
-        auto current_node = syntax.next();
-        if (!current_node.has_value()) {
-          co_return;
-        }
+        {
+          auto current_node = syntax.next();
+          if (!current_node.has_value()) {
+            co_return;
+          }
 
-        rule = find_rule_precedence_second(rule, current_node.unwrap(), precedence);
+          rule = find_rule_precedence_second(rule, current_node.unwrap(), precedence);
+        }
       } while (rule.is_valid());
     }
 

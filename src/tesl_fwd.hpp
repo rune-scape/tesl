@@ -1,4 +1,3 @@
-#include "fmt/format.h"
 #include <memory>
 #include <fmt/fwd.h>
 
@@ -8,10 +7,15 @@ namespace tesl {
   template<typename T> struct RefCounted;
 
   // tesl_fmt.hpp
-  using FmtBuffer = fmt::memory_buffer;
   using FmtParseContext = fmt::format_parse_context;
   using FmtFormatContext = fmt::format_context;
   struct FmtFormatter;
+
+  // tesl_coroutine.hpp
+  namespace coroutine {
+    template<typename T>
+    struct Generator;
+  }
 
   // tesl_dynamic_array.hpp
   struct DynamicArray;
@@ -60,14 +64,14 @@ namespace tesl {
   // tesl_tokenizer.hpp
   struct Tokenizer;
 
-  // tesl_grammar.hpp
   namespace grammar {
+    // tesl_grammar.hpp
     struct SyntaxNode;
     struct SyntaxStream;
-  }
 
-  // tesl_parser.hpp
-  struct Parser;
+    // tesl_syntax_resolver.hpp
+    struct SyntaxResolver;
+  }
 
   // tesl_compiler.hpp
   struct Compiler;
@@ -94,9 +98,4 @@ namespace tesl {
   // tesl_var.hpp
   struct VarRef;
   struct Variant;
-
-  namespace coroutine {
-    template<typename T>
-    struct Generator;
-  }
 }

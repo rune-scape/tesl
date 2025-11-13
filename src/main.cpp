@@ -1,10 +1,11 @@
+#include "tesl_grammar.hpp"
 #include "tesl_str.hpp"
 #include "tesl_tokenizer.hpp"
 #include "tesl_parser.hpp"
 #include "tesl_grammar.tpp"
 #include "tesl_env.hpp"
 #include "tesl_fmt.hpp"
-#include "tesl_parse.hpp"
+#include "tesl_syntax_resolver.hpp"
 #include "tesl_var.hpp"
 #include <filesystem>
 #include <clocale>
@@ -94,7 +95,7 @@
   }
 }*/
 
-void test_file(std::filesystem::path input_path) {
+/*void test_file(std::filesystem::path input_path) {
   auto file_size = std::filesystem::file_size(input_path);
   tesl::println("~ parse: '{}' (size={})", input_path.string(), file_size);
 #ifdef USE_MMAP
@@ -118,6 +119,33 @@ void test_file(std::filesystem::path input_path) {
   while (parser.tokenizer.current() != tesl::Token::END) {
     parser.parse_program();
   }
+}*/
+
+void test_file(std::filesystem::path input_path) {
+  using namespace tesl;
+
+  auto file_size = std::filesystem::file_size(input_path);
+  println("~ parse: '{}' (size={})", input_path.string(), file_size);
+#ifdef USE_MMAP
+  std::error_code error;
+  auto mmap = mio::make_mmap_source(input_path.string(), 0, file_size, error);
+  if (error) {
+    println("error: could not open file {}: {}", input_path.string(), error.message());
+    return;
+  }
+  CharStrView input_data{mmap.begin(), mmap.end()};
+#else
+  Array<char> file_data;
+  file_data.resize(file_size);
+  FILE * f = std::fopen(input_path.string().c_str(), "r");
+  TESL_ASSERT(f != nullptr);
+  auto read_size = std::fread(file_data.data(), sizeof(char), file_data.size(), f);
+  TESL_ASSERT(read_size == file_size);
+  CharStrView input_data{file_data.data(), read_size};
+#endif
+  grammar::SyntaxResolver resolver;
+  auto grammar = grammar::tmpl::expression_library_tmpl.make_library();
+  grammar.parse_precedence(make_token_generator({input_data}), resolver, -1);
 }
 
 int main(int argc, const char * * argv) {
